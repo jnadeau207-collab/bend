@@ -987,7 +987,7 @@ async function hub_get(book: Book, sub: string, hash: string, spn?: Span): Promi
   const res = await fetch(BEND_HUB + "/" + sub);
   const src = res.ok ? await res.text() : "";
   const sum = Buffer.from(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(src))).toString("hex");
-  if (!res.ok || !sum.startsWith(hash) || path.posix.normalize("/" + sub) !== "/" + sub) {
+  if (!res.ok || sum !== hash || path.posix.normalize("/" + sub) !== "/" + sub) {
     throw Err(book, ctx_nil(), "a file at " + BEND_HUB + "/" + sub + " hashing to " + hash, undefined, spn);
   }
   return src;
@@ -997,12 +997,14 @@ export async function book_load(book: Book, file: string, ns: string, seen: Map<
   if (file.startsWith(BEND_LIB + "/") && !fs.existsSync(file)) {
     const pkg = file.slice(BEND_LIB.length + 1).split("/")[0];
     const man = await hub_get(book, pkg + "/manifest", pkg.slice(2), spn);
-    for (const [h, p] of man.trim().split("\n").map((l) => l.split(" "))) {
-      const sub = pkg + "/" + p;
-      const src = await hub_get(book, sub, h, spn);
-      fs.mkdirSync(path.dirname(BEND_LIB + "/" + sub), { recursive: true });
-      fs.writeFileSync(BEND_LIB + "/" + sub, src);
-    }
+    const fls = man.trim().split("\n").map((l) => l.split(" "));
+    const srs = await Promise.all(fls.map(([h, p]) =>
+      hub_get(book, pkg + "/" + p, h, spn)));
+    fls.forEach(([, p], i) => {
+      const at = BEND_LIB + "/" + pkg + "/" + p;
+      fs.mkdirSync(path.dirname(at), { recursive: true });
+      fs.writeFileSync(at, srs[i]);
+    });
   }
   if (!fs.existsSync(file)) {
     throw Err(book, ctx_nil(), "no such file: " + file, undefined, spn);
@@ -1142,6 +1144,37 @@ export function word_to_term(n: U32, s?: Span): LTerm {
 
 export function u32_to_term(n: U32, s?: Span): LTerm {
   return Ctr("U32", [word_to_term(n, s)], s);
+}
+
+// A nat literal up to NAT_LITERAL_MAX expands into a Succ chain, which the
+// checker unfolds in patterns and proofs; a larger one, up to the u32 bound,
+// parses as U32.to_nat(n), so no chain outgrows the checker's stack.
+export const NAT_LITERAL_MAX = 256;
+
+export function nat_to_term(n: number, s?: Span): LTerm {
+  if (n > NAT_LITERAL_MAX) {
+    return App(Ref("U32.to_nat", s), u32_to_term(n, s), s);
+  }
+  let out: LTerm = Ctr("Zero", [], s);
+  for (let i = 0; i < n; i++) {
+    out = Ctr("Succ", [out], s);
+  }
+  return out;
+}
+
+export function nat_from_term(t: LTerm): number | null {
+  let n = 0;
+  while (t.$ === "Ctr" && t.k === "Succ" && t.x.length === 1) {
+    n += 1;
+    t = t.x[0];
+  }
+  if (t.$ === "Ctr" && t.k === "Zero" && t.x.length === 0) {
+    return n;
+  }
+  if (n === 0 && t.$ === "App" && t.f.$ === "Ref" && t.f.k === "U32.to_nat") {
+    return u32_from_term(t.x);
+  }
+  return null;
 }
 
 export function u32_from_term<X>(tm: TermOf<X>, k: Name = "U32"): number | null {
@@ -1689,6 +1722,14 @@ export function parse_bind(p: Parse, t: LTerm): PVar {
 
 export function parse_patt(p: Parse, t: LTerm): Patt {
   const book = p.book;
+  const lit  = t.$ === "App" ? nat_from_term(t) : null;
+  if (lit !== null) {
+    let q: Patt = { $: "PCtr", k: "Zero", x: [], s: t.s };
+    for (let i = 0; i < lit; i++) {
+      q = { $: "PCtr", k: "Succ", x: [q], s: t.s };
+    }
+    return q;
+  }
   switch (t.$) {
     case "Var": {
       if (book_ctr(book, parse_reso(p, t.k)) !== null) {
@@ -1908,17 +1949,11 @@ export function parse_term_base(p: Parse, beg: Loc): LTerm {
         parse_term_ns(p, p.os.splice(n0), T);
         let d = n;
         if (cnt) {
-          let k = 0;
-          while (d.$ === "Ctr" && d.k === "Succ" && d.x.length === 1) {
-            k += 1;
-            d = d.x[0];
-          }
-          if (d.$ !== "Ctr" || d.k !== "Zero" || k === 0 || (k & (k - 1)) !== 0) {
+          const k = nat_from_term(n) ?? 0;
+          if (k === 0 || (k & (k - 1)) !== 0) {
             throw Err(p.book, ctx_nil(), "a power of two count (^d takes a depth)", undefined, n.s);
           }
-          for (let j = 0; j < Math.log2(k); j++) {
-            d = Ctr("Succ", [d], n.s);
-          }
+          d = nat_to_term(Math.log2(k), n.s);
         }
         return App(App(App(Ref("Array.new", s), T, s), d, s), xs[0], s);
       }
@@ -2232,23 +2267,24 @@ export function parse_term_num(p: Parse): LTerm {
     return u32_to_term(w, parse_span(p, beg));
   }
   const n = Number(s);
-  if (n > Number.MAX_SAFE_INTEGER) {
-    parse_fail(p, "a nat literal up to " + Number.MAX_SAFE_INTEGER + "n (got " + s + "n)");
+  if (n > 0xffffffff) {
+    parse_fail(p, "a nat literal up to 4294967295n (got " + s + "n)");
   }
-  let out: LTerm;
   if (parse_take(p, "+")) {
-    out = parse_term(p);
-  } else {
-    if (char_is_name(parse_peek(p))) {
-      parse_fail(p, "a nat literal (NUMBER n)");
+    let out = parse_term(p);
+    const spn = parse_span(p, beg);
+    if (n > NAT_LITERAL_MAX) {
+      return App(App(Ref("Nat.add", spn), nat_to_term(n, spn), spn), out, spn);
     }
-    out = Ctr("Zero", [], parse_span(p, beg));
+    for (let i = 0; i < n; i++) {
+      out = Ctr("Succ", [out], spn);
+    }
+    return out;
   }
-  const spn = parse_span(p, beg);
-  for (let i = 0; i < n; i++) {
-    out = Ctr("Succ", [out], spn);
+  if (char_is_name(parse_peek(p))) {
+    parse_fail(p, "a nat literal (NUMBER n)");
   }
-  return out;
+  return nat_to_term(n, parse_span(p, beg));
 }
 
 export function parse_term_do_stmt(p: Parse, m: Name, ls: LTerm[], R: LTerm | null, col: number): LTerm {
@@ -2688,7 +2724,9 @@ export function match_flatten(m: Match, vars: PVar[], fr: () => number): LTerm {
     }
     switch (e.$) {
       case "Var": {
-        throw Err(book_nil(), ctx_nil(), "match scrutinees in binder order (this variable is unbound, consumed, or out of order: reorder the match)", undefined, e.s);
+        throw Err(book_nil(), ctx_nil(), "a match on a parameter or field (this"
+          + " name is a def or a consumed binder: give the value its own def)",
+          undefined, e.s);
       }
       case "Ctr": {
         throw Err(book_nil(), ctx_nil(), "an undestructed scrutinee (this value is already a constructor: bind its fields directly; if an outer match destructed it, fold the pattern into the outer case)", undefined, m.s);
@@ -3271,7 +3309,11 @@ export function term_infer(book: Book, lhs: LHS, tm: HTerm, qt: Quant, ctx: Ctx,
     case "Ref": {
       const tld = book.tlds[tm.k];
       if (tld === undefined) {
-        throw Err(book, ctx, "a defined name", tm, tm.s, lhs.def);
+        const msg = tm.k in book.tmps
+          ? "a template applied to closed ~ arguments "
+            + "(a def parameter is not comptime)"
+          : "a defined name";
+        throw Err(book, ctx, msg, tm, tm.s, lhs.def);
       }
       switch (qt.$) {
         case "None": {
@@ -3648,7 +3690,7 @@ export function term_check(book: Book, lhs: LHS, tm: HTerm, qt: Quant, ty: HTerm
 // speculative pass.
 
 export function book_valid(book: Book, done: number = 0): void {
-  const seen = book_nil();
+  const seen = { ...book_nil(), tmps: book.tmps };
   const last = new Map<Name, number>();
   for (let i = 0; i < book.order.length; i++) {
     last.set(book.order[i], i);

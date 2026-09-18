@@ -61,7 +61,8 @@ than once, if the variable is Data-kinded.
 Bend does almost no inference, meaning it requires more annotations than similar
 languages. This is what allows Bend's checker to be significantly faster than
 other provers, and its error messages more precise, at the expense of programs
-and proofs being more verbose.
+and proofs being more verbose. When the checker can't decide the type of an
+expression, just annotate it, as in `{3 : U32}`.
 
 ### Closures
 
@@ -81,8 +82,7 @@ def main() -> U32:
 
 A closure is affine: it can be called at most once, even when everything it
 captures is `Data`. Only top-level definitions can be called freely. Partial
-applications like `U32.add(2)` are closures too. A let must be inferable:
-annotate a literal, as in `x = {3 : U32}`.
+applications like `U32.add(2)` are closures too.
 
 ### Recursion and Termination
 
@@ -102,16 +102,13 @@ def main() -> U32:
   sum([1, 2, 3, 4], 0)
 ```
 
-Here, `t` has one fewer element than `xs`, so `sum` eventually reaches the
-empty list. Bend verifies termination by requiring recursive calls to use
-smaller parts of their inputs, obtained through pattern matching. The check
-reads the arguments of a recursive call from left to right: each must be passed
-unchanged until one is a smaller part of its parameter, and the ones after it
-are free. So, put the parameter that shrinks first. A `U32` has no `1+p`
-pattern, so loop counters are `Nat`s: `case 1n+p:` hands you a smaller `p` to
-recurse on, and a `Nat` is still a machine word at runtime (a program aborts
-past 2^48-1).
-There is no `if`: a branch is a `match` on `True{}` and `False{}`.
+Here, `t` has one fewer element than `xs`, so `sum` eventually reaches the empty
+list. Bend verifies termination by requiring recursive calls to use smaller
+parts of their inputs, obtained through pattern matching. The check reads the
+arguments of a recursive call from left to right: each must be passed unchanged
+until one is a smaller part of its parameter, and the ones after it are free.
+So, put the parameter that shrinks first. Also, is no `if` syntax yet. Use
+`match` on `True{}` and `False{}` instead.
 
 Termination is mandatory and mutual recursion is not allowed. Both restrictions
 keep Bend's proofs sound, as a function that never returns could otherwise prove
@@ -358,9 +355,10 @@ def main() -> IO(Unit):
 
 Every bind is annotated, and `x : T = v` binds a pure value in the middle of a
 block. A fallible effect answers `Result<&1, &1, U32 & String, A>`: `IO.try`
-unwraps it or exits with the error, and `IO.die` exits with your own. A handle
-(`File`, `Socket`, `Window`) is an affine, opaque value, so every effect on one
-hands it back beside its result, and no program can forge or reuse one.
+unwraps it or exits with the error, and `IO.die` exits with your own. `IO.args`
+answers the command line, less the runtime's own options (a `--` ends them). A
+handle (`File`, `Socket`, `Window`) is an affine, opaque value, so every effect
+on one hands it back beside its result, and no program can forge or reuse one.
 
 A Bend program is a set of computations interleaved by one event loop, as in
 Node.js: each runs its pure code (in parallel, on every core) up to its next
@@ -489,7 +487,7 @@ a file with everything it imports and prints that line.
 Bend is a single command:
 
 ```bash
-bend file.bend            # check the file, then run main on the JS backend
+bend file.bend            # check; run main (IO compiled; a value normalized)
 bend file.bend -o file    # compile to a native binary (clang 14+; 19+ with `!`)
 bend file.bend -o file.c  # emit the C source instead
 bend file.bend -o file.js # emit the JS source instead
@@ -573,6 +571,7 @@ bit operations, `<< >>` the shifts (by a `Nat`), and `< <= > >=` the `T.is_lt`
 family; without a `: T` they belong to `Nat`. `&& ||` work on `Bool` and `++` on
 `String` anywhere. Operators need spaces on both sides.
 Equality of values is a call, `T.is_eq(a, b)`; `==` is only the type.
+A `Nat` literal past `256n` is `U32.to_nat(n)` underneath, up to `4294967295n`.
 
 ## Under the Hood
 

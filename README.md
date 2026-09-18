@@ -201,6 +201,7 @@ def add_zero(x):
 - Paper: [BendTT: An Affine Dependent Type Theory](paper/BendTT.pdf).
 - Paper: [BendRT: A Parallel Runtime for CPUs and GPUs](paper/BendRT.pdf).
 - Formalization: [bend.lean](bend2/bend.lean), Bend's core in Lean.
+- Benches: [bench/](bench), every bench used to make the charts above.
 
 # Community
 

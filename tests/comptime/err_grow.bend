@@ -17,7 +17,7 @@ def main() -> Nat:
   grow(~inc, 2n)
 
 #|Error:
-#|- expected : a defined name
+#|- expected : a template applied to closed ~ arguments (a def parameter is not comptime)
 #|- observed : grow
 #|Context:
 #|- f : @_:Nat -> Nat

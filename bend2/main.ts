@@ -29,12 +29,13 @@ import * as Comp from "./comp.ts";
 // Constants
 // =========
 
-const VERSION = "2.0.5";
+const VERSION = "2.0.7";
 
 const HELP = `Bend ${VERSION}: check, run, build and publish Bend programs.
 
 usage:
-  bend <file.bend>            check the file, then run main
+  bend <file.bend> [args]     check the file, then run main with args
+                              (IO.args; a "--" ends bend's own options)
   bend <file.bend> -o <out>   build a binary; <out>.c emits C, <out>.js JS
   bend <file.bend> --checkup  check and run each import alone
   bend <file.bend> --publish  publish the file and its imports to the hub
@@ -93,6 +94,7 @@ async function cli(): Promise<void> {
     return cli_base(args[1]);
   }
   const outs: string[] = [];
+  const argv: string[] = [];
   let file: string | undefined;
   let checkup = false;
   let publish = false;
@@ -108,9 +110,12 @@ async function cli(): Promise<void> {
     } else if (a === "-o") {
       i += 1;
       outs.push(args[i] ?? cli_fail("-o needs an output file"));
-    } else if (a.startsWith("-") || file !== undefined) {
-      cli_fail(a.startsWith("-") ? "unknown option " + a
-        : "too many arguments");
+    } else if (a === "--") {
+      argv.push(...args.splice(i + 1));
+    } else if (a.startsWith("-")) {
+      cli_fail("unknown option " + a);
+    } else if (file !== undefined) {
+      argv.push(a);
     } else {
       file = a;
     }
@@ -128,6 +133,9 @@ async function cli(): Promise<void> {
   if (publish && (outs.length !== 0 || checkup)) {
     cli_fail("--publish takes no other option");
   }
+  if (argv.length !== 0 && (outs.length !== 0 || checkup || publish)) {
+    cli_fail("arguments go to a run: bend <file.bend> [args]");
+  }
   if (checkup && outs.length !== 0) {
     cli_fail("--checkup takes no -o: a binary holds one main, so build each"
       + " import alone");
@@ -142,7 +150,7 @@ async function cli(): Promise<void> {
     const seen = new Map<string, string | null>();
     const book = await book_read(file, undefined, seen);
     if (outs.length === 0) {
-      process.exit(book_run(book));
+      process.exit(book_run(book, argv));
     }
     const ins = new Set([...seen.keys(), ...Object.values(book.tlds).flatMap((t) =>
       t.$ === "Def" && t.i !== undefined ? t.i.map(path_real) : [])]);
@@ -175,7 +183,7 @@ async function cli_checkup(file: string): Promise<void> {
     let code = 1;
     try {
       const own = /^import Base$/m.test(fs.readFileSync(at, "utf8"));
-      code = book_run(await book_read(at, own ? base : undefined));
+      code = book_run(await book_read(at, own ? base : undefined), []);
     } catch (e) {
       cli_say(2, book_err(e) + "\n");
     }
@@ -397,9 +405,8 @@ async function pow_mine(hash: string, bytes: number): Promise<number> {
 function cli_report(book: Bend.Book): void {
   const uns  = Object.values(book.tlds).filter((t) =>
     t.$ === "Def" && t.u === true).length;
-  cli_say(1, uns > 0 ? `${uns} term${uns === 1 ? "" : "s"}`
-    + " annotated as unsafe.\nThe code is well-typed, but may contain logical"
-    + " paradoxes.\n" : "All terms check.\n");
+  cli_say(1, uns > 0 ? `All terms check, with ${uns} unsafe annotation`
+    + `${uns === 1 ? "" : "s"}.\n` : "All terms check.\n");
 }
 
 function cli_say(fd: number, text: string): void {
@@ -451,7 +458,7 @@ function book_seed(base: Bend.Book): Bend.Book {
   return book;
 }
 
-function book_run(book: Bend.Book): number {
+function book_run(book: Bend.Book, argv: string[]): number {
   const main = book.tlds["main"];
   if (main === undefined || main.$ !== "Def"
     || (main.v === null && main.i === undefined)) {
@@ -459,7 +466,7 @@ function book_run(book: Bend.Book): number {
     return 0;
   }
   if (Comp.io_type(book) !== null) {
-    return Comp.io_run(book);
+    return Comp.io_run(book, argv);
   }
   const snf = Bend.term_snf(book, main.v as Bend.HTerm);
   cli_say(1, Bend.term_show(Bend.term_lower(snf)) + "\n");
@@ -504,6 +511,11 @@ export async function load(u: string, context: unknown,
 export default PLUGIN;
 
 if (import.meta.main) {
+  if (typeof Bun === "undefined") {
+    cli_say(2, "bend runs on Bun: curl -fsSL https://bend-lang.com/install.sh"
+      + " | sh\n");
+    process.exit(1);
+  }
   await cli();
 } else if (typeof Bun !== "undefined") {
   Bun.plugin(PLUGIN);
