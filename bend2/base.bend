@@ -1679,6 +1679,10 @@ law F32.bits:
   for a: F32
   U32
 
+def F32.from_bits(x: U32) -> F32:
+  U32{w} = x
+  F32{w}
+
 law F32.read:
   for s: String
   Maybe<&2, F32>

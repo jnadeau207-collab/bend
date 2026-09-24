@@ -255,6 +255,10 @@ const OPERATIONS: Record<string, Intr> = Object.setPrototypeOf({
     C:  "$0",
     JS: "f32_bits($0)",
   },
+  f32_from_bits: {
+    C:  "$0",
+    JS: "f32_from_bits($0)",
+  },
   f32_show: {
     C:    "f32_show(e, $0)",
     call: true,

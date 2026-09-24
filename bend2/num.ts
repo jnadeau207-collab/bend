@@ -39,7 +39,7 @@ export function ops(pre: string, names: string, C: string, JS: string):
 // def on such a lane and inlines them elsewhere.
 export const SOFT = new Set(("f64_add f64_sub f64_mul f64_div f64_is_eq"
   + " f64_is_ne f64_is_lt f64_is_le f64_is_gt f64_is_ge f64_sqrt"
-  + " f64_fma").split(" "));
+  + " f64_fma f64_to_u32 f64_to_u64 f64_to_f32").split(" "));
 
 export const OPS: Record<string, Op> = {
   ...ops("u64_", "add:+ sub:- mul:* and:& or:| xor:^", "($0 $o $1)",
@@ -78,6 +78,18 @@ export const OPS: Record<string, Op> = {
   f64_fma: {
     C: "f64_of(fma(f64_num($0), f64_num($1), f64_num($2)))",
   },
+  f64_to_u32: {
+    C:  "f64_to_u32($0)",
+    JS: "f64_to_u32($0)",
+  },
+  f64_to_u64: {
+    C:  "f64_to_u64($0)",
+    JS: "f64_to_u64($0)",
+  },
+  f64_to_f32: {
+    C:  "f64_to_f32($0)",
+    JS: "Math.fround(f64_num($0))",
+  },
   f64_show: {
     C:    "f64_show(e, $0)",
     call: true,
@@ -102,6 +114,22 @@ INLINE double f64_num(u64 x) {
 INLINE u64 f64_of(double x) {
   union { double f; u64 u; } p = { x };
   return x != x ? 0x7FF8000000000000ull : p.u;
+}
+
+INLINE u64 f64_to_u32(u64 x) {
+  double v = f64_num(x);
+  return v >= 0.0 && v < 4294967296.0 ? (u32)v : 0;
+}
+
+INLINE u64 f64_to_u64(u64 x) {
+  double v = f64_num(x);
+  return v >= 0.0 && v < 18446744073709551616.0 ? (u64)v : 0;
+}
+
+INLINE u64 f64_to_f32(u64 x) {
+  double v = f64_num(x);
+  union { f32 f; u32 u; } p = { (f32)v };
+  return v != v ? 0x7FC00000ull : p.u;
 }
 #endif
 
@@ -174,6 +202,16 @@ function f64_read(s) {
   const re = /^\s*[+-]?((\d+\.?\d*|\.\d+)(e[+-]?\d+)?|inf(inity)?|nan)$/i;
   const v = Number(s.replace(/inf\w*/i, "Infinity"));
   return re.test(s) ? {$: "Some", value: f64_of(v)} : {$: "None"};
+}
+
+function f64_to_u32(b) {
+  const v = f64_num(b);
+  return v >= 0 && v < 4294967296 ? Math.floor(v) : 0;
+}
+
+function f64_to_u64(b) {
+  const v = f64_num(b);
+  return v >= 0 && v < 18446744073709551616 ? BigInt(Math.floor(v)) : 0n;
 }
 
 function word_to_u64(w) {

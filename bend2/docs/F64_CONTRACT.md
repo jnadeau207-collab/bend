@@ -125,7 +125,7 @@ Stored F32/F64 is raw bits, not Number. F32 may use exact U32; F64 uses exact U6
 Native double may implement qualified core arithmetic. Ordinary multiply-add does not contract; explicit FMA may.
 
 ### Metal
-F64 storage is one `ulong` IEEE binary64 pattern. Arithmetic is GPU-resident integer software binary64. No F32 pair, no CPU callback, no hidden fallback, no normal-only semantics under the general F64 API.
+F64 storage is two `w32` halves like every lane (§2). Arithmetic is GPU-resident integer software binary64 over the joined halves. No F32 pair, no CPU callback, no hidden fallback, no normal-only semantics under the general F64 API.
 
 ## 10. Device claims
 
