@@ -5850,7 +5850,7 @@ static void io_wait(Env e) {
     IoAct* a   = io_pop(&todo);
     bool   due = (a->evts != 0
         && io_bit(set[a->evts == POLLOUT], (int)a->work.word, false))
-      || (a->time != 0 && a->time <= now);
+      || (a->time == soon && soon != 0 && soon <= now);
     if (!due) {
       io_push(&io_park, a);
       continue;
@@ -6389,7 +6389,7 @@ function io_wait(io) {
     ms < 0 ? null : sys.ptr(tv));
   const now = performance.now();
   io.waits = io.waits.filter((w) => {
-    const ready = w.at <= now || w.fd !== undefined
+    const ready = w.at === soon && soon <= now || w.fd !== undefined
       && set[at(w)] & 1 << (w.fd & 7);
     if (ready) {
       io_push(io_wake, w, false);
@@ -6398,7 +6398,8 @@ function io_wait(io) {
   });
 }
 
-// Resume k with more's value; undefined means re-parked.
+// Resume k with more's value; undefined means re-parked. A wait wakes only
+// the earliest due timers: sleeps end in deadline order, however late.
 function io_wake(w) {
   const x = w.more();
   return x === undefined ? undefined : w.k(x);
