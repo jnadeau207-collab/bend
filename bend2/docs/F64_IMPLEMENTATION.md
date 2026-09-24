@@ -150,6 +150,8 @@ Only after representation/arithmetic is stable:
 
 Editing `bend2/bend.ts` is allowed and expected when the language grammar requires it.
 
+**Literals done:** `7u64`, `0x7ff0000000000000u64`, `1.5f64` (exact decimal rounding); a pure main prints U64 and F64 on every lane as they read back (`tests/printer/u64_f64_literal_print.bend`).
+
 ## N10 — broad qualification
 
 Keep the normal gate tiny and adversarial. Large TestFloat/SoftFloat/MPFR/device campaigns are qualification jobs, not excuses to violate the 30 s gate law.

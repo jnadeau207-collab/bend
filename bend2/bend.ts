@@ -293,6 +293,7 @@ export type TermOf<B> = (
   | { $: "ADT"; k: Name; x: TermOf<B>[]; r: Name[] }                               // A<x0,x1,...>
   | { $: "Ctr"; k: Name; x: TermOf<B>[] }                                          // A{x0,x1,...}
   | { $: "Lit"; k: "Nat" | "U32" | "F32"; v: number }                            // 3n, 7, 1.5 (its bits)
+  | { $: "Lit"; k: "U64" | "F64"; v: bigint }                                    // 7u64, 1.5f64 (its bits)
   | { $: "Lit"; k: "String"; v: string }                                          // "text"
   | { $: "Mat"; k: Name; h: TermOf<B>; m: TermOf<B> }                              // \{A: h; m}
   | { $: "Efq" }                                                                   // \{}
@@ -417,7 +418,8 @@ export function Ctr<X>(k: Name, x: TermOf<X>[], s?: Span): TermOf<X> {
 
 export function Lit<X>(k: "Nat" | "U32" | "F32", v: number, s?: Span): TermOf<X>;
 export function Lit<X>(k: "String", v: string, s?: Span): TermOf<X>;
-export function Lit<X>(k: Name, v: number | string, s?: Span): TermOf<X> {
+export function Lit<X>(k: "U64" | "F64", v: bigint, s?: Span): TermOf<X>;
+export function Lit<X>(k: Name, v: number | string | bigint, s?: Span): TermOf<X> {
   return { $: "Lit", k, v, s } as TermOf<X>;
 }
 
@@ -1010,6 +1012,12 @@ export const BEND_DIR = import.meta.url.startsWith("file:///$bunfs/")
   ? path.join(path.dirname(fs.realpathSync(process.execPath)), "..", "bend2")
   : url.fileURLToPath(new URL(".", import.meta.url));
 export const BASE_BEND = fs.realpathSync(path.join(BEND_DIR, "base.bend"));
+
+// Base's text: base.bend, then num.bend (its 64-bit numbers)
+export function base_src(): string {
+  return ["base", "num"].map((f) =>
+    fs.readFileSync(path.join(BEND_DIR, f + ".bend"), "utf8")).join("\n");
+}
 const BEND_LIB = path.resolve(process.env.BEND_LIB ?? path.join(os.homedir(), ".bend", "lib"));
 export const BEND_HUB   = process.env.BEND_HUB ?? "https://hub.bend-lang.com";
 
@@ -1077,7 +1085,7 @@ export async function book_load(book: Book, file: string, ns: string, seen: Map<
   seen.set(real, null);
   const dir   = file.slice(0, file.lastIndexOf("/") + 1);
   const al    : Record<Name, Name> = Object.create(null);
-  const text  = fs.readFileSync(file, "utf8");
+  const text  = real === BASE_BEND ? base_src() : fs.readFileSync(file, "utf8");
   const lines = text.split("\n");
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim();
@@ -1186,10 +1194,10 @@ export function tele_unbind(book: Book, T: HTerm): { doms: Array<[Quant, Name, H
 // Word
 // ====
 
-export function word_to_term<X>(n: U32, s?: Span): TermOf<X> {
+export function word_to_term<X>(n: number | bigint, s?: Span, bits = 32): TermOf<X> {
   let out: TermOf<X> = Ctr("WNil", [], s);
-  for (let i = 31; i >= 0; i--) {
-    out = Ctr("WCon", [Ctr((n >>> i) & 1 ? "True" : "False", [], s), out], s);
+  for (let i = BigInt(bits) - 1n; i >= 0n; i--) {
+    out = Ctr("WCon", [Ctr(BigInt(n) >> i & 1n ? "True" : "False", [], s), out], s);
   }
   return out;
 }
@@ -1217,7 +1225,7 @@ export function lit_step<X>({ k, v, s }: Extract<TermOf<X>, { $: "Lit" }>): Term
       : Ctr("SCon", [Ctr("Chr", [Lit("U32", c, s)], s), Lit(k, v.slice(c > 0xffff ? 2 : 1), s)], s);
   }
   if (k !== "Nat") {
-    return Ctr(k, [word_to_term(v, s)], s);
+    return Ctr(k, [word_to_term(v, s, k.endsWith("64") ? 64 : 32)], s);
   }
   return v === 0 ? Ctr("Zero", [], s) : Ctr("Succ", [Lit(k, v - 1, s)], s);
 }
@@ -1275,14 +1283,55 @@ export function f32_from_bits(n: U32): number {
   return F32_VIEW.getFloat32(0);
 }
 
-// The shortest decimal that reads back to the same f32, as a literal (a
-// point before an e); nan, inf and -inf have none and print as such.
-function f32_show(x: number): string {
+// The shortest decimal that reads back to the same f32 (or, at 17 digits,
+// f64), as a literal (a point before an e); nan, inf and -inf have none
+// and print as such.
+function f32_show(x: number, n = 9): string {
+  const rd = (t: string) => n > 9 ? Number(t) : Math.fround(Number(t));
   let s = "nan";
-  for (let p = 1; x === x && p <= 9 && Math.fround(Number(s)) !== x; p += 1) {
+  for (let p = 1; x === x && p <= n && rd(s) !== x; p += 1) {
     s = String(Number(x.toExponential(p - 1)));
   }
   return (Object.is(x, -0) ? "-0" : s).replace(/^-?\d+(?=e|$)/, "$&.0").replace("Infinity", "inf");
+}
+
+// F64
+// ===
+
+const F64_VIEW = new DataView(new ArrayBuffer(8));
+
+export function f64_from_bits(n: bigint): number {
+  F64_VIEW.setBigUint64(0, n);
+  return F64_VIEW.getFloat64(0);
+}
+
+const blen = (n: bigint): number => n.toString(2).length;
+
+// n * 2^e (n > 0; st: a nonzero tail below n, past its round bit) to
+// nearest even, as bits: the lsb is 2^-1074 or 52 below the top, and a
+// carry past the hidden bit bumps the exponent field
+function f64_round(n: bigint, e: number, st: boolean): bigint {
+  const lsb = Math.max(blen(n) - 1 + e - 52, -1074);
+  const sh = BigInt(lsb - e);
+  if (sh <= 0n) {
+    return (BigInt(lsb + 1074) << 52n) + (n << -sh);
+  }
+  const half = 1n << sh - 1n;
+  const r = n & (1n << sh) - 1n;
+  const m = (n >> sh) + BigInt(r > half || r === half && (st || (n >> sh & 1n) === 1n));
+  return (BigInt(lsb + 1074) << 52n) + m;
+}
+
+// a decimal's bits, exactly rounded; null past the largest finite
+export function f64_read(t: string): bigint | null {
+  const [, i, f = "", x = "0"] = /^(\d+)(?:\.(\d+))?(?:[eE]([+-]?\d+))?$/.exec(t)!;
+  const d = BigInt(i + f);
+  const e = Number(x) - f.length;
+  const q = 10n ** BigInt(Math.abs(e));
+  const k = Math.max(0, 64 + blen(q) - blen(d));
+  const b = d === 0n ? 0n : e >= 0 ? f64_round(d * q, 0, false)
+    : f64_round((d << BigInt(k)) / q, -k, (d << BigInt(k)) % q !== 0n);
+  return b < 0x7FF0000000000000n ? b : null;
 }
 
 // Show
@@ -1472,9 +1521,12 @@ export function term_show(term: LTerm, top: number = -1, bnd: Name[] = []): stri
       case "Ctr": {
         const u32 = word_from_term(tm, "U32");
         const f32 = word_from_term(tm, "F32");
+        const u64 = word_from_term(tm, "U64", 64);
+        const f64 = word_from_term(tm, "F64", 64);
         const chr = term_show_sugar_chr(tm, "'");
         const arr = term_show_sugar_arr(tm);
         const sug = u32 !== null ? String(u32) : f32 !== null ? f32_show(f32_from_bits(Number(f32)))
+                 : u64 !== null ? u64 + "u64" : f64 !== null ? f32_show(f64_from_bits(f64), 17) + "f64"
                  : term_show_sugar_nat(tm, prc)
                  ?? (chr !== null ? "'" + chr + "'" : null)
                  ?? term_show_sugar_str(tm)
@@ -2297,15 +2349,26 @@ export function parse_term_tup(p: Parse, beg: Loc): LTerm {
   return out;
 }
 
-const NUMBER = /(\d+)(n|\.\d+([eE][+-]?\d+)?)?/y;
+const NUMBER = /(0x[\da-fA-F]+|\d+)(\.\d+(?:[eE][+-]?\d+)?)?(n|u64|f64)?/y;
 
 export function parse_term_num(p: Parse): LTerm {
   const beg = p.pos;
   NUMBER.lastIndex = p.pos;
   const m = NUMBER.exec(p.str) as RegExpExecArray;
   const s = m[1];
+  const x = m[3];
   p.pos += m[0].length;
-  if (m[2] !== undefined && m[2] !== "n") {
+  const hex = s.startsWith("0x");
+  if (x === "f64" || x === "u64") {
+    const v = x === "u64" ? BigInt(s) : hex ? null : f64_read(s + (m[2] ?? ""));
+    if (v === null || v >= 1n << 64n || (x === "u64" && m[2] !== undefined)
+      || char_is_name(parse_peek(p))) {
+      parse_fail(p, "a u64 literal up to 18446744073709551615u64 or a finite"
+        + " decimal f64 literal (got " + m[0] + ")");
+    }
+    return Lit(x === "u64" ? "U64" : "F64", v!, parse_span(p, beg));
+  }
+  if (m[2] !== undefined) {
     const v = Math.fround(Number(m[0]));
     if (!isFinite(v)) {
       parse_fail(p, "a float literal with a finite f32 value (got " + m[0] + ")");
@@ -2313,7 +2376,7 @@ export function parse_term_num(p: Parse): LTerm {
     const spn = parse_span(p, beg);
     return Lit("F32", f32_to_bits(v), spn);
   }
-  if (m[2] === undefined) {
+  if (x === undefined) {
     if (char_is_name(parse_peek(p))) {
       parse_fail(p, "a numeric literal (NUMBER is U32, NUMBER n is Nat)");
     }

@@ -5,6 +5,7 @@
 import * as fs from "node:fs";
 
 import * as Bend from "./bend.ts";
+import * as Num from "./num.ts";
 
 // Comp
 // ====
@@ -226,30 +227,7 @@ const OPERATIONS: Record<string, Intr> = Object.setPrototypeOf({
     C:  "((u64)(u32)($0))",
     JS: "Number($0 & 0xFFFFFFFFn)",
   },
-  ...tpl_ops("u64_", "add:+ sub:- mul:* and:& or:| xor:^", "($0 $o $1)",
-    "BigInt.asUintN(64, $0 $o $1)"),
-  ...tpl_ops("u64_", CMPS, "((u64)($0 $o $1))", "($0 $o $1)"),
-  ...tpl_ops("u64_", "inc:+ shl:<< shr:>>", "($0 $o 1)",
-    "BigInt.asUintN(64, $0 $o 1n)"),
-  ...tpl_ops("u64_", "shln:<< shrn:>>", "($1 >= 64 ? 0 : $0 $o $1)",
-    "($1 >= 64n ? 0n : BigInt.asUintN(64, $0 $o $1))"),
-  ...Object.fromEntries([
-    ["div", "($1 == 0 ? 0 : $0 / $1)", "($1 === 0n ? 0n : $0 / $1)"],
-    ["mod", "($1 == 0 ? $0 : $0 % $1)", "($1 === 0n ? $0 : $0 % $1)"],
-    ["shr_jam", "($1 >= 64 ? (u64)($0 != 0)"
-      + " : $0 >> $1 | (u64)(($0 & ((1ull << $1) - 1)) != 0))",
-    "($1 >= 64n ? BigInt($0 !== 0n)"
-      + " : $0 >> $1 | BigInt(($0 & ((1n << $1) - 1n)) !== 0n))"],
-    ["not", "(~$0)", "BigInt.asUintN(64, ~$0)"],
-    ["cmp", "(($0 > $1) + ($0 >= $1))", "cmp_new($0, $1)"],
-    ["join", "((u64)(u32)$1 << 32 | (u32)$0)",
-      "(BigInt($1) << 32n | BigInt($0))"],
-    ["lo", "((u64)(u32)$0)", "Number(BigInt.asUintN(32, $0))"],
-    ["hi", "($0 >> 32)", "Number($0 >> 32n)"],
-    ["clz", "u64_clz($0)", "(64 - $0.toString(2).length + ($0 === 0n))"],
-    ["mul_hi", "u64_mul_hi($0, $1)", "(($0 * $1) >> 64n)"],
-  ].map(([k, C, JS]) => ["u64_" + k, { C, JS }])),
-  ...tpl_ops("f64_", "bits from_bits", "$0", "$0"),
+  ...Num.OPS,
   ...tpl_ops("f32_", "add:+ sub:- mul:* div:/",
     "f32_rewrap(f32_unbox($0) $o f32_unbox($1))", "Math.fround($0 $o $1)"),
   f32_neg: {
@@ -427,22 +405,7 @@ ${SHIMS}
 #define U32_QUO(a, b) \
   ((a) / 2 / (b) * 2 + ((a) - (a) / 2 / (b) * 2 * (b) >= (b)))
 
-INLINE u64 u64_clz(u64 x) {
-  u64 n = 64;
-  for (; x != 0; x >>= 1) {
-    n -= 1;
-  }
-  return n;
-}
-
-// the high half of a 128-bit product, over 32-bit partial products
-INLINE u64 u64_mul_hi(u64 a, u64 b) {
-  u64 lo = (a & 0xFFFFFFFF) * (b & 0xFFFFFFFF);
-  u64 m1 = (a >> 32) * (b & 0xFFFFFFFF) + (lo >> 32);
-  u64 m2 = (a & 0xFFFFFFFF) * (b >> 32) + (m1 & 0xFFFFFFFF);
-  return (a >> 32) * (b >> 32) + (m1 >> 32) + (m2 >> 32);
-}
-
+${Num.C}
 INLINE f32 f32_unbox(u64 x) {
   union { u32 u; f32 f; } p = { (u32)x };
   return p.f;
@@ -483,15 +446,16 @@ static Term f32_read(Env e, Term s);
 #endif
 `.slice(1),
   IO: String.raw`
-static int f32_text(char* buf, f32 v) {
+// the shortest of up to d digits that reads back to v (an f32 below 10)
+static int f32_text(char* buf, double v, int d) {
   int n = 0;
   int p = 0;
   if (v != v) {
     return sprintf(buf, "nan");
   }
-  for (; p < 9; p += 1) {
-    n = snprintf(buf, 40, "%.*e", p, (double)v);
-    if (strtof(buf, NULL) == v) {
+  for (; p < d; p += 1) {
+    n = snprintf(buf, 40, "%.*e", p, v);
+    if ((d > 9 ? strtod(buf, NULL) : strtof(buf, NULL)) == v) {
       break;
     }
   }
@@ -515,7 +479,7 @@ static int f32_text(char* buf, f32 v) {
 
 static Term f32_show(Env e, Term x) {
   char buf[40];
-  return io_str(e, buf, f32_text(buf, f32_unbox(x)));
+  return io_str(e, buf, f32_text(buf, f32_unbox(x), 9));
 }
 
 static Term f32_read(Env e, Term s) {
@@ -547,23 +511,7 @@ function u32_to_word(x) {
   return w;
 }
 
-function word_to_u64(w) {
-  let x = 0n;
-  for (let i = 0n; w.$ === "WCon"; i++) {
-    x |= BigInt(w.head) << i;
-    w = w.tail;
-  }
-  return x;
-}
-
-function u64_to_word(x) {
-  let w = {$: "WNil"};
-  for (let i = 63n; i >= 0n; i--) {
-    w = {$: "WCon", head: (x >> i & 1n) === 1n, tail: w};
-  }
-  return w;
-}
-
+${Num.JS}
 function cmp_new(a, b) {
   return {$: a < b ? "LT"
     : a === b ? "EQ" : "GT"};
@@ -1305,7 +1253,7 @@ export function io_type(book: Bend.Book): HTerm | null {
 // A pure main prints through a descriptor of its type, a node per (type,
 // boxed?): 0 U32, 1 F32, 2 Nat, 3 Char, 4 String, 5 Eql, 6 Array (element,
 // lgs), 7 Data (boxed?, arms; per arm name, cid, fields, bracket, then an
-// (offset, node) per field). Null for an IO main; an unprintable type (a
+// (offset, node) per field), 8 U64, 9 F64. Null for an IO main; an unprintable type (a
 // function, a Type, an erased or dependent field) refuses the build.
 function show_main(book: Bend.Book): Show | null {
   const main = book.tlds["main"];
@@ -1321,20 +1269,19 @@ function show_main(book: Bend.Book): Show | null {
   const ids = new Map<string, number>();
   const refuse = (): never => die("main's type " + Bend.term_show(
     Bend.term_lower(main.T)) + " cannot be printed (a function, a Type, an"
-    + " erased or dependent field, a 64-bit word)");
+    + " erased or dependent field)");
   const node = (T: HTerm, lay: Lay): number => {
     const t = ty_wnf(book, T) as HTerm;
     const box = lay_box(lay);
     const key = String(box) + Bend.term_key(Bend.term_lower(t));
     const adt = ty_adt(book, t);
     const tld = adt && book.tlds[adt.k];
-    const kind = t.$ === "Eql" ? 5 : "U32 F32 Nat Char String . Array"
-      .split(" ").indexOf(adt?.k ?? "") & 7;
+    const kind = t.$ === "Eql" ? 5 : ("U32 F32 Nat Char String . Array . U64 F64"
+      .split(" ").indexOf(adt?.k ?? "") + 1 || 8) - 1;
     if (ids.has(key)) {
       return ids.get(key)!;
     }
-    if (kind !== 5 && (adt === null || adt.k === "IO.OP" || tld?.$ !== "ADT"
-      || HALF[adt.k])) {
+    if (kind !== 5 && (adt === null || adt.k === "IO.OP" || tld?.$ !== "ADT")) {
       return refuse();
     }
     const id = show.cells.push(kind) - 1;
@@ -5902,9 +5849,9 @@ static void show_chr(u64 c, char q) {
 }
 
 // The shortest text that reads back, as a literal: a point before an e
-static void show_f32(u32 x) {
+static void show_f32(double x, int d) {
   char  buf[40];
-  int   n  = f32_text(buf, f32_unbox(x));
+  int   n  = f32_text(buf, x, d);
   char* ep = memchr(buf, 'e', n);
   int   m  = ep == NULL ? n : (int)(ep - buf);
   buf[n] = 0;
@@ -5924,7 +5871,9 @@ static void show_val(Env e, u32 d, const Term* w, char chain) {
   u32  zn = 0;
   for (bool tail = true; tail;) switch (tail = false, D[d]) {
     case 0: printf("%u", (u32)w[0]); break;
-    case 1: show_f32((u32)w[0]); break;
+    case 1: show_f32(f32_unbox(w[0]), 9); break;
+    case 8: printf("%lluu64", (unsigned long long)(w[1] << 32 | (u32)w[0])); break;
+    case 9: show_f32(f64_num(w[1] << 32 | (u32)w[0]), 17), printf("f64"); break;
     case 2: printf("%llun", (unsigned long long)w[0]); break;
     case 3:
       putchar('\'');
@@ -6269,6 +6218,8 @@ function show_val(D, N, d, v, chain) {
     : D[d] === 4 ? "\"" + [...v].map((c) =>
       show_chr(c.codePointAt(0), "\"")).join("") + "\""
     : D[d] === 5 ? "{==}"
+    : D[d] === 8 ? v + "u64"
+    : D[d] === 9 ? f64_show(v).replace(/^-?\d+(?=e|$)/, "$&.0") + "f64"
     : "[" + v.map((x) => show_val(D, N, D[d + 1], x, 0)).join(", ") + "]";
 }
 

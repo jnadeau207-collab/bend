@@ -422,7 +422,7 @@ function cli_build(bin: string, file: string): void {
 // (every `type`, and every law whose result is a kind); with a name, the
 // blocks declaring it or a name under it (its law, its def, its @unsafe).
 function cli_base(what?: string): void {
-  const src = fs.readFileSync(BASE, "utf8");
+  const src = Bend.base_src();
   if (what === undefined) {
     return cli_say(1, src);
   }

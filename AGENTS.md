@@ -28,6 +28,8 @@ A failing invariant is fixed at its source. Never weaken a theorem, expected val
 - `bend2/comp.ts`: compiler plus C/Metal/CUDA/JS runtimes and emitters.
 - `bend2/main.ts`: CLI and build driver.
 - `bend2/base.bend`: base library.
+- `bend2/num.bend`: Base's 64-bit numbers (U64, F64), read after base.bend.
+- `bend2/num.ts`: their C and JS natives.
 - `bend2/bend.lean`: mechanized core.
 - `bend2/effs/`: IO effect sources per backend; related effects may share one.
 - `bend2/docs/F64_CONTRACT.md`: numeric semantics.
