@@ -3223,27 +3223,14 @@ export function term_compare(mode: "EQ" | "LE", book: Book, lhs: HTerm, rhs: HTe
       }
       return term_compare("LE", book, g, h, dep);
     }
-    case "Qnt": {
-      return b.$ === "Qnt";
-    }
     case "Qua": {
       return b.$ === "Qua" && a.q.$ === b.q.$;
-    }
-    case "Min": {
-      return b.$ === "Min"
-          && term_compare("EQ", book, a.a, b.a, dep)
-          && term_compare("EQ", book, a.b, b.b, dep);
     }
     case "All": {
       const x: HTerm = Var(a.k, dep);
       return b.$ === "All" && a.q.$ === b.q.$
           && term_compare(mode, book, b.A, a.A, dep)
           && term_compare(mode, book, a.B(x), b.B(x), dep + 1);
-    }
-    case "App": {
-      return b.$ === "App"
-          && term_compare("EQ", book, a.f, b.f, dep)
-          && term_compare("EQ", book, a.x, b.x, dep);
     }
     case "ADT": {
       if (b.$ !== "ADT" || a.k !== b.k || a.x.length !== b.x.length) {
@@ -3255,38 +3242,28 @@ export function term_compare(mode: "EQ" | "LE", book: Book, lhs: HTerm, rhs: HTe
       return b.r.every((c) => a.r.includes(c))
           && a.x.every((x, j) => term_compare("EQ", book, x, b.x[j], dep));
     }
+    case "Lit": {
+      return b.$ === "Lit" && a.k === b.k && a.v === b.v;
+    }
+    // the rest match by head (its kind and name) and children, all EQ
+    case "App": {
+      return b.$ === "App"
+          && term_compare("EQ", book, a.f, b.f, dep)
+          && term_compare("EQ", book, a.x, b.x, dep);
+    }
     case "Ctr": {
       return b.$ === "Ctr" && a.k === b.k && a.x.length === b.x.length
           && a.x.every((x, j) => term_compare("EQ", book, x, b.x[j], dep));
     }
-    case "Lit": {
-      return b.$ === "Lit" && a.k === b.k && a.v === b.v;
-    }
-    case "Mat": {
-      return b.$ === "Mat" && a.k === b.k
-          && term_compare("EQ", book, a.h, b.h, dep)
-          && term_compare("EQ", book, a.m, b.m, dep);
-    }
-    case "Efq": {
-      return b.$ === "Efq";
-    }
-    case "Eql": {
-      return b.$ === "Eql"
-          && term_compare("EQ", book, a.a, b.a, dep)
-          && term_compare("EQ", book, a.b, b.b, dep)
-          && term_compare("EQ", book, a.T, b.T, dep);
-    }
-    case "Rfl": {
-      return b.$ === "Rfl";
-    }
-    case "Hol": {
-      return b.$ === "Hol" && a.k === b.k;
-    }
-    case "Rwt": {
-      return b.$ === "Rwt"
-          && term_compare("EQ", book, a.e, b.e, dep)
-          && term_compare("EQ", book, a.p, b.p, dep)
-          && term_compare("EQ", book, a.f, b.f, dep);
+    case "Qnt": case "Min": case "Mat": case "Efq": case "Eql": case "Rfl":
+    case "Hol": case "Rwt": {
+      const xs: HTerm[] = [];
+      const ys: HTerm[] = [];
+      term_map(a, (x) => (xs.push(x), x));
+      term_map(b, (y) => (ys.push(y), y));
+      return a.$ === b.$ && ("k" in a && a.k) === ("k" in b && b.k)
+          && xs.length === ys.length
+          && xs.every((x, j) => term_compare("EQ", book, x, ys[j], dep));
     }
     default: {
       return false;
