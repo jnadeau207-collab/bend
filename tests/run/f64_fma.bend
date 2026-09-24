@@ -2,8 +2,9 @@
 # the canonical 0x7ff8000000000000): exact small products, a rounding
 # case, exact and near cancellation, overflow with a zero and a finite
 # addend, the subnormal edge both ways, 0 * inf, the infinite sums, a
-# signed-zero product, the far paths both ways, a NaN input and an
-# infinite addend over an overflowing product. The interpreter runs
+# signed-zero product, the far paths both ways, a NaN input, an
+# infinite addend over an overflowing product and sticky-sensitive wide
+# sums. The interpreter runs
 # Base's software core; C runs libc's fma, JS and the device lanes the
 # core; the count is of the vectors kept.
 import Base
@@ -42,6 +43,14 @@ def alo(n: U32) -> U32:
       0
     case 15:
       4294967295
+    case 16:
+      4294967295
+    case 17:
+      4294967290
+    case 18:
+      4294967295
+    case 19:
+      4294967295
     case _:
       4294967295
 
@@ -79,8 +88,16 @@ def ahi(n: U32) -> U32:
       2146697216
     case 15:
       2146435071
-    case _:
+    case 16:
       2146435071
+    case 17:
+      1048575
+    case 18:
+      1048575
+    case 19:
+      1048575
+    case _:
+      1048575
 
 def blo(n: U32) -> U32:
   match n:
@@ -115,6 +132,14 @@ def blo(n: U32) -> U32:
     case 14:
       0
     case 15:
+      4294967295
+    case 16:
+      4294967295
+    case 17:
+      4294967292
+    case 18:
+      4294967295
+    case 19:
       4294967295
     case _:
       4294967295
@@ -153,6 +178,14 @@ def bhi(n: U32) -> U32:
       1072693248
     case 15:
       2146435071
+    case 16:
+      2146435071
+    case 17:
+      2145386495
+    case 18:
+      2145386495
+    case 19:
+      2145386495
     case _:
       2146435071
 
@@ -190,6 +223,14 @@ def clo(n: U32) -> U32:
       0
     case 15:
       0
+    case 16:
+      0
+    case 17:
+      1
+    case 18:
+      0
+    case 19:
+      4
     case _:
       0
 
@@ -227,8 +268,16 @@ def chi(n: U32) -> U32:
       1073741824
     case 15:
       2146435072
-    case _:
+    case 16:
       4293918720
+    case 17:
+      1072693248
+    case 18:
+      1072693248
+    case 19:
+      1072693248
+    case _:
+      1072693248
 
 def rlo(n: U32) -> U32:
   match n:
@@ -264,8 +313,16 @@ def rlo(n: U32) -> U32:
       0
     case 15:
       0
-    case _:
+    case 16:
       0
+    case 17:
+      4294967289
+    case 18:
+      4294967295
+    case 19:
+      1
+    case _:
+      4294967295
 
 def rhi(n: U32) -> U32:
   match n:
@@ -301,8 +358,16 @@ def rhi(n: U32) -> U32:
       2146959360
     case 15:
       2146435072
-    case _:
+    case 16:
       4293918720
+    case 17:
+      1074266111
+    case 18:
+      1074266111
+    case 19:
+      1074266112
+    case _:
+      1075052543
 
 def fa(+i: U32) -> F64:
   F64.from_bits(U64.join(alo(i), ahi(i)))
@@ -326,6 +391,6 @@ def kept(+n: Nat) -> U32:
       U32.add(kept(p), ok(U32.from_nat(p)))
 
 def main() -> IO(Unit):
-  IO.print(U32.show(kept(17n)))
+  IO.print(U32.show(kept(21n)))
 
-#|17
+#|21
