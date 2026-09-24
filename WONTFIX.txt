@@ -69,6 +69,10 @@ F32 NaN payload bits are not preserved on the JS lane (#797, #872)
   reference and JS keeps the number. A program that reads those bits as a
   dependent tag takes the two lanes down two arms, and the arm JS takes may
   duplicate an affine value (#872). The C lane is the reference there too.
+  No one-representation fix exists on that lane: JavaScriptCore (bun)
+  canonicalizes every NaN double to 0x7ff8000000000000 on materialization
+  (its NaN-boxing leaves no payload bits), so a number cannot carry them.
+  F64 keeps its BigInt bits there instead.
 
 RUNTIME (the theory allows it, the runtime does not run it yet; we remove
 these over time; do not open an issue)
