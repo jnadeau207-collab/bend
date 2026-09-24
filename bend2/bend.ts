@@ -1260,15 +1260,19 @@ export function f64_from_bits(n: bigint): number {
   return F32_VIEW.getFloat64(0);
 }
 
-// The shortest decimal that reads back to the same f32, as a literal (a
-// point before an e); nan, inf and -inf have none and print as such.
-function f32_show(x: number, n = 9): string {
+export function f32_text(x: number, n = 9): string {
   let s = "nan";
   for (let p = 1; x === x && p <= n
     && (n > 9 ? Number(s) : Math.fround(Number(s))) !== x; p += 1) {
     s = String(Number(x.toExponential(p - 1)));
   }
-  return (Object.is(x, -0) ? "-0" : s).replace(/^-?\d+(?=e|$)/, "$&.0").replace("Infinity", "inf");
+  return (Object.is(x, -0) ? "-0" : s).replace("Infinity", "inf");
+}
+
+// The shortest decimal that reads back to the same f32, as a literal (a
+// point before an e); nan, inf and -inf have none and print as such.
+export function f32_show(x: number, n = 9): string {
+  return f32_text(x, n).replace(/^-?\d+(?=e|$)/, "$&.0");
 }
 
 // Show

@@ -282,7 +282,7 @@ const OPERATIONS: Record<string, Intr> = Object.setPrototypeOf({
   f64_show: {
     C:    "f64_show(e, $0)",
     call: true,
-    JS:   "f32_show(f64_num($0), 17)",
+    JS:   "f32_text(f64_num($0), 17)",
   },
   f64_read: {
     C:    "f64_read(e, $0)",
@@ -318,7 +318,7 @@ const OPERATIONS: Record<string, Intr> = Object.setPrototypeOf({
   f32_show: {
     C:    "f32_show(e, $0)",
     call: true,
-    JS:   "f32_show($0)",
+    JS:   "f32_text($0)",
   },
   f32_read: {
     C:    "f32_read(e, $0)",
@@ -645,21 +645,9 @@ function nat_chk(n) {
   return n;
 }
 
-function f32_show(x, n = 9) {
-  if (x !== x) {
-    return "nan";
-  }
-  if (!Number.isFinite(x) || Object.is(x, -0)) {
-    return x < 0 ? "-inf"
-      : x === 0 ? "-0" : "inf";
-  }
-  let s = "x";
-  for (let p = 1; p <= n
-    && (n > 9 ? Number(s) : Math.fround(Number(s))) !== x; p += 1) {
-    s = String(Number(x.toExponential(p - 1)));
-  }
-  return s;
-}
+${Bend.f32_text}
+
+${Bend.f32_show}
 
 const F64_VIEW = new DataView(new ArrayBuffer(8));
 
@@ -6320,8 +6308,8 @@ function show_val(D, N, d, v, chain) {
     return o === "{" || chain !== o ? s + "}])"[D[a + 3]] : s;
   }
   return D[d] === 0 ? String(v)
-    : D[d] === 1 || D[d] === 9 ? f32_show(D[d] > 1 ? f64_num(v) : v, D[d] > 1
-      ? 17 : 9).replace(/^-?\d+(?=e|$)/, "$&.0") + (D[d] > 1 ? "f64" : "")
+    : D[d] === 1 ? f32_show(v)
+    : D[d] === 9 ? f32_show(f64_num(v), 17) + "f64"
     : D[d] === 2 ? v + "n"
     : D[d] === 3 ? "'" + show_chr(v.codePointAt(0), "'") + "'"
     : D[d] === 4 ? "\"" + [...v].map((c) =>
