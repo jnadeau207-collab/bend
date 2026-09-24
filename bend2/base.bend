@@ -2456,8 +2456,37 @@ def U64.show(a: U64) -> String:
   +b = a
   U64.show.if(b, U64.is_zero(b))
 
+law U32.show.go:
+  for f   : Nat
+  for +n  : U32
+  for acc : String
+  String
+
+def U32.show.fin(g: Nat, acc: String, +n: U32, z: Bool) -> String:
+  match z:
+    case True{}:
+      acc
+    case False{}:
+      U32.show.go(g, U32.div(n, 10),
+        SCon{Chr{U32.add(48, U32.mod(n, 10))}, acc})
+
+def U32.show.go(f, n, acc):
+  match f:
+    case 0n:
+      acc
+    case 1n+g:
+      U32.show.fin(g, acc, n, U32.is_zero(n))
+
+def U32.show.if(a: U32, z: Bool) -> String:
+  match z:
+    case True{}:
+      SCon{Chr{48}, SNil{}}
+    case False{}:
+      U32.show.go(10n, a, SNil{})
+
 def U32.show(a: U32) -> String:
-  U64.show(U32.to_u64(a))
+  +b = a
+  U32.show.if(b, U32.is_zero(b))
 
 law U64.read.go:
   for s   : String
@@ -2486,16 +2515,32 @@ def U64.read(s: String) -> Maybe<&2, U64>:
     case SCon{h, t}:
       U64.read.go(SCon{h, t}, 0u64)
 
-def U32.read.of(m: Maybe<&2, U64>) -> Maybe<&2, U32>:
-  match m:
-    case Some{+v}:
-      Bool.pick(Maybe<&2, U32>, U64.is_lt(v, 4294967296u64),
-        Some{U64.to_u32(v)}, None{})
-    case None{}:
+law U32.read.go:
+  for s   : String
+  for +acc : U32
+  Maybe<&2, U32>
+
+def U32.read.if(t: String, n: U32, ok: Bool) -> Maybe<&2, U32>:
+  match ok:
+    case True{}:
+      U32.read.go(t, n)
+    case False{}:
       None{}
 
+def U32.read.go(s, acc):
+  match s:
+    case SNil{}:
+      Some{acc}
+    case SCon{Chr{x}, t}:
+      +n = U32.add(U32.mul(acc, 10), U32.sub(x, 48))
+      U32.read.if(t, n, U32.is_eq(U32.div(n, 10), acc))
+
 def U32.read(s: String) -> Maybe<&2, U32>:
-  U32.read.of(U64.read(s))
+  match s:
+    case SNil{}:
+      None{}
+    case SCon{h, t}:
+      U32.read.go(SCon{h, t}, 0)
 
 def Bool.show(b: Bool) -> String:
   match b:

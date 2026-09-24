@@ -229,20 +229,13 @@ const OPERATIONS: Record<string, Intr> = Object.setPrototypeOf({
   ...tpl_ops("u64_", CMPS, "($0 $o $1)"),
   ...tpl_ops("u64_", "shln:<< shrn:>>", "($1 >= 64 ? 0 : $0 $o $1)",
     "($1 >= 64n ? 0n : BigInt.asUintN(64, $0 $o $1))"),
-  u64_div: {
-    C:  "($1 ? $0 / $1 : 0)",
-    JS: "($1 ? $0 / $1 : 0n)",
-  },
+  ...tpl_ops("u64_", "div", "($1 ? $0 / $1 : $1)"),
   ...tpl_ops("u64_", "mod", "($1 ? $0 % $1 : $0)"),
   ...tpl_ops("u64_", "from_nat to_nat", "$0"),
-  u64_clz: {
-    C:  "($0 >> 32 ? CLZ((u32)($0 >> 32)) : $0 ? 32 + CLZ((u32)$0) : 64)",
-    JS: "(64 - $0.toString(2).length + !$0)",
-  },
-  u64_mul_hi: {
-    C:  "u64_mul_hi($0, $1)",
-    JS: "($0 * $1 >> 64n)",
-  },
+  ...tpl_ops("u64_", "clz",
+    "($0 >> 32 ? CLZ((u32)($0 >> 32)) : $0 ? 32 + CLZ((u32)$0) : 64)",
+    "(64 - $0.toString(2).length + !$0)"),
+  ...tpl_ops("u64_", "mul_hi", "u64_mul_hi($0, $1)", "($0 * $1 >> 64n)"),
   ...tpl_ops("f64_", "add:+ sub:- mul:* div:/",
     "f64_of(f64_num($0) $o f64_num($1))"),
   ...tpl_ops("f64_", CMPS, "(f64_num($0) $o f64_num($1))"),
@@ -251,6 +244,8 @@ const OPERATIONS: Record<string, Intr> = Object.setPrototypeOf({
   f64_fma: {
     C: "f64_of(fma(f64_num($0), f64_num($1), f64_num($2)))",
   },
+  ...tpl_ops("f64_", "to_f32", "f32_rewrap((f32)f64_num(f64_of(f64_num($0))))",
+    "Math.fround(f64_num(f64_of(f64_num($0))))"),
   f64_to_u64: {
     C:    "(f64_num($0) >= 0 && f64_num($0) < 0x1p64 ? (u64)f64_num($0) : 0)",
     JS:   "(f64_num($0) >= 0 && f64_num($0) < 2 ** 64"
@@ -517,7 +512,7 @@ static int f32_text(char* buf, double v, int d) {
       break;
     }
     char* up = strchr(buf, 'e') - 1;
-    if (*up != '9' && fabs(strtod(buf, NULL)) < fabs(v)
+    if (!(f64_of(v) << 12) && *up != '9' && fabs(strtod(buf, NULL)) < fabs(v)
       && (*up += 1, strtod(buf, NULL) == v)) {
       break;
     }
@@ -546,10 +541,6 @@ static Term f32_show(Env e, Term x, bool w) {
   return io_str(e, buf, f32_text(buf, v, w ? 17 : 9));
 }
 
-#ifndef CID_F64
-#define CID_F64 0
-#endif
-
 static Term f32_read(Env e, Term s, bool w) {
   u64 n = 0;
   char* text = io_cstr(e, s, &n);
@@ -557,7 +548,7 @@ static Term f32_read(Env e, Term s, bool w) {
   double v = w ? strtod(text, &end) : strtof(text, &end);
   u64 b = f64_of(v);
   Term out = n > 0 && (u64)(end - text) == n && strpbrk(text, "xX(") == NULL
-    ? io_box(e, CID(Some), w ? io_node(e, CID_F64, (u32)b, b >> 32)
+    ? io_box(e, CID(Some), w ? io_node(e, CID(F64), (u32)b, b >> 32)
     : f32_rewrap((f32)v)) : term_pak(CID(None), 0);
   free(text);
   return out;
@@ -2246,22 +2237,30 @@ function emit_put(fl: File, dst: Dst, v: Val): void {
   }
 }
 
-function emit_fuse(fl: File, ck: Call, dst: Dst, tail = false): void {
+function emit_fuse(fl: File, ck: Call, dst?: Dst, tail = false): Dst {
   const tld = fl.book.tlds[ck.k] as Def;
   const doms = tele_unbind(fl.book, tld.T).doms;
   const ers = ck.all.filter((_, i) => i < tld.n && !quant_live(doms[i][0]));
   const { lays, ret } = sig_def(fl, ck.k);
   const flat = flat_of(ck.k);
   const ws = emit_args(fl, ck, tail && !flat);
+  let at = 0;
+  const vals = lays.map((lay) => val_new(ws.slice(at, at += lay.ks.length),
+    lay));
   if (!flat) {
     const outer = fl.def;
     fl.def = ck.k;
-    emit_body(fl, tld.h as HTerm, tld.T, ers, lays.map((lay) =>
-      val_new(ws.splice(0, lay.ks.length), lay)), dst);
+    emit_body(fl, tld.h as HTerm, tld.T, ers, vals, dst!);
     fl.def = outer;
-    return;
+    return null;
   }
   const out = emit_dst(fl, ret);
+  const it = tld.b ? OPERATIONS[op_name(ck.k)] : undefined;
+  if (intr_soft(it)) {
+    file_push(fl, "#ifndef __METAL_VERSION__");
+    emit_put(fl, out, intr_c(fl, it!.C as string, ck.k, vals, ret));
+    file_push(fl, "#else");
+  }
   const name = emit_native(fl, ck, ers);
   const o = name_local(fl, "o");
   file_push(fl, `Term ${o}[${out.ws.length}];`);
@@ -2269,10 +2268,16 @@ function emit_fuse(fl: File, ck: Call, dst: Dst, tail = false): void {
     file_push(fl, "return 0;");
   });
   out.ws.forEach((v, j) => file_push(fl, `${v} = ${o}[${j}];`));
+  if (intr_soft(it)) {
+    file_push(fl, "#endif");
+  }
   if (tail) {
     bind_dead(fl, []);
   }
-  emit_put(fl, dst, out);
+  if (dst !== undefined) {
+    emit_put(fl, dst, out);
+  }
+  return out;
 }
 
 // Opens a unit of `k`: fresh state, parameters bound, segment made.
@@ -2308,16 +2313,7 @@ function emit_native(fl: File, ck: Call, ers: HTerm[]): string {
   const seg = fl.seg;
   seg.fid = name;
   const dst = val_new(seg.ret.ks.map(() => name_local(fl, "v")), seg.ret);
-  const it = tld.b ? OPERATIONS[op_name(ck.k)] : undefined;
-  if (intr_soft(it)) {
-    file_push(fl, "#ifndef __METAL_VERSION__");
-    emit_put(fl, dst, intr_c(fl, it!.C as string, ck.k, vals, seg.ret));
-    file_push(fl, "#else");
-  }
   emit_body(fl, tld.h as HTerm, tld.T, ers, vals, dst);
-  if (intr_soft(it)) {
-    file_push(fl, "#endif");
-  }
   fl.spins.push({ fid: name, refs: seg.refs, text: [`${seg.lines.length < SPIN_FAR ? "INLINE" : "FAR"} Term ${name}(Env e, THR Term* o${
     seg.ks.map((k, i) => `, ${lay_c(k)} r${i}`).join("")}) {`,
   "  u32 wpoll = 0;",
@@ -2366,8 +2362,8 @@ function emit_intr(fl: File, it: Intr, x: HTerm,
 }
 
 function intr_c(fl: File, C: string, k: Name, vs: Val[], lay: Lay): Val {
-  const { lays, ret } = sig_def(fl, k);
-  const ws = vs.map((v, i) => lay_w64(lays[i]) ? emit_alias(fl,
+  const ret = sig_def(fl, k).ret;
+  const ws = vs.map((v) => v.ws.length > 1 ? emit_alias(fl,
     `((u64)${v.ws[1]} << 32 | ${v.ws[0]})`, "a", "w64") : val_word(v));
   const out = tpl(C, /\$(\d)[^]*\$\1/.test(C)
     ? ws.map((a) => emit_alias(fl, a, "a")) : ws);
@@ -2550,9 +2546,7 @@ function emit_expr(fl: File, tm: HTerm, ty0: HTerm | null,
       }
       const m = term_spine(fl, x);
       if (flat_call(fl, x)) {
-        const dst = emit_dst(fl, sig_def(fl, m.call!.k).ret);
-        emit_fuse(fl, m.call!, dst);
-        return dst;
+        return emit_fuse(fl, m.call!)!;
       }
       // An eta-expansion, or a head applied to erased arguments alone.
       const y = call_eta(fl, x)
@@ -2659,7 +2653,7 @@ function emit_body(fl: File, tm: HTerm, ty0: HTerm | null,
         && !def_foreign(fl.book.tlds[ck.k])
         && (!lay_box(ret) || lay_box(fl.seg.ret));
       if (fl.seg.def !== ck.k && (flat_call(fl, x) || (dst === null && once))) {
-        return emit_fuse(fl, ck, dst, true);
+        return void emit_fuse(fl, ck, dst, true);
       }
       // A jump's returns must agree or both be one word (a box holds a word
       // as is); a call whose return disagrees becomes a cut.
@@ -2969,17 +2963,8 @@ function emit_chain(fl: File, cond: (i: number) => string,
   if (bodies.length === 1) {
     return bodies[0]();
   }
-  bodies.forEach((body, i) => {
-    if (i === bodies.length - 1) {
-      file_push(fl, "} else {");
-    } else {
-      file_push(fl, `${i === 0 ? "if" : "} else if"} (${cond(i)}) {`);
-    }
-    fl.tab += 1;
-    body();
-    fl.tab -= 1;
-  });
-  file_push(fl, "}");
+  bodies.forEach((body, i) => block(fl, i === bodies.length - 1 ? "else {"
+    : `${i === 0 ? "if" : "else if"} (${cond(i)}) {`, body));
 }
 
 // Compile
@@ -3023,7 +3008,7 @@ function compile_reqs(fl: File): void {
 
 // The datatypes whose constructors the runtime or the elaborator lays itself.
 const RUNTIME_ADTS = ["Sigma", "String", "Word.Con", "IO.OP", "Result",
-  "Maybe", "Bool", "Unit"];
+  "Maybe", "Bool", "Unit", "F64"];
 
 // Base's names the compiler encodes itself, which a file without `import
 // Base` may declare but not compile.
