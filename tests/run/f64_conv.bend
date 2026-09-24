@@ -1,9 +1,10 @@
 # F64's conversions, bit-exact against truncation and round-to-nearest:
 # toward-zero to U32 and U64 (NaN, infinite, negative and out-of-range
 # to 0; the 2^32 and 2^64 edges) and to F32 (ties to even, overflow to
-# infinity, the subnormal edges, a NaN canonical). The interpreter runs
-# Base's software core; C and JS run their natives, the device lanes the
-# core; each count is of the vectors kept, per op.
+# infinity, the subnormal edges with round-ups, a NaN canonical). The
+# first three counts call the top defs (natives on a double lane, the
+# core on a spin lane); the fourth calls the core's at directly, so it
+# guards the core on every lane.
 import Base
 
 def alo(n: U32) -> U32:
@@ -48,8 +49,30 @@ def alo(n: U32) -> U32:
       0
     case 19:
       0
-    case _:
+    case 20:
       0
+    case 21:
+      1610612736
+    case 22:
+      3758096384
+    case 23:
+      1610612735
+    case 24:
+      536870913
+    case 25:
+      4294967295
+    case 26:
+      4294967295
+    case 27:
+      0
+    case 28:
+      1
+    case 29:
+      4294967295
+    case 30:
+      1610612736
+    case _:
+      2684354560
 
 def ahi(n: U32) -> U32:
   match n:
@@ -93,8 +116,30 @@ def ahi(n: U32) -> U32:
       1056964608
     case 19:
       1048576000
-    case _:
+    case 20:
       1048576
+    case 21:
+      939524096
+    case 22:
+      939524096
+    case 23:
+      939524096
+    case 24:
+      939524096
+    case 25:
+      916455423
+    case 26:
+      1072693247
+    case 27:
+      915406848
+    case 28:
+      915406848
+    case 29:
+      1206910975
+    case 30:
+      3087007744
+    case _:
+      937426944
 
 def rlo0(n: U32) -> U32:
   match n:
@@ -137,6 +182,12 @@ def rlo0(n: U32) -> U32:
     case 18:
       0
     case 19:
+      0
+    case 20:
+      0
+    case 21:
+      0
+    case 22:
       0
     case _:
       0
@@ -183,6 +234,12 @@ def rlo1(n: U32) -> U32:
       0
     case 19:
       0
+    case 20:
+      0
+    case 21:
+      0
+    case 22:
+      0
     case _:
       0
 
@@ -227,6 +284,12 @@ def rhi1(n: U32) -> U32:
     case 18:
       0
     case 19:
+      0
+    case 20:
+      0
+    case 21:
+      0
+    case 22:
       0
     case _:
       0
@@ -273,8 +336,30 @@ def rlo2(n: U32) -> U32:
       939524096
     case 19:
       872415232
-    case _:
+    case 20:
       0
+    case 21:
+      4194306
+    case 22:
+      4194308
+    case 23:
+      4194305
+    case 24:
+      4194305
+    case 25:
+      1
+    case 26:
+      1065353216
+    case 27:
+      0
+    case 28:
+      1
+    case 29:
+      2139095040
+    case 30:
+      2151677954
+    case _:
+      1048577
 
 def fa(+i: U32) -> F64:
   F64.from_bits(U64.join(alo(i), ahi(i)))
@@ -311,8 +396,20 @@ def kept2(+n: Nat) -> U32:
     case 1n+p:
       U32.add(kept2(p), ok2(U32.from_nat(p)))
 
-def main() -> IO(Unit):
-  IO.print(U32.show(kept0(21n)) ++ " " ++ U32.show(kept1(21n))
-    ++ " " ++ U32.show(kept2(21n)))
+def ok3(+i: U32) -> U32:
+  +a = fa(i)
+  Bool.to_u32(U32.is_eq(F32.bits(F64.to_f32.at(F64.cls(a), F64.sign(a), a)),
+    rlo2(i)))
 
-#|21 21 21
+def kept3(+n: Nat) -> U32:
+  match n:
+    case 0n:
+      0
+    case 1n+p:
+      U32.add(kept3(p), ok3(U32.from_nat(p)))
+
+def main() -> IO(Unit):
+  IO.print(U32.show(kept0(32n)) ++ " " ++ U32.show(kept1(32n))
+    ++ " " ++ U32.show(kept2(32n)) ++ " " ++ U32.show(kept3(32n)))
+
+#|32 32 32 32
