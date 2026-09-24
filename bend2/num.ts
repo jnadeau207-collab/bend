@@ -42,16 +42,21 @@ export function f64_read(t: string): bigint | null {
 }
 
 
-const CMPS = "is_eq:==:=== is_ne:!=:!== is_lt:< is_le:<= is_gt:> is_ge:>=";
+export const CMPS = "is_eq:==:=== is_ne:!=:!== is_lt:< is_le:<= is_gt:> is_ge:>=";
 
 // One template per "name:C-op:JS-op" entry, $o its operator.
-function ops(pre: string, names: string, C: string, JS: string):
+export function ops(pre: string, names: string, C: string, JS: string):
   Record<string, Op> {
   return Object.fromEntries(names.split(" ").map((p) => {
     const [k, o = k, jo = o] = p.split(":");
     return [pre + k, { C: C.replaceAll("$o", o), JS: JS.replaceAll("$o", jo) }];
   }));
 }
+
+// The natives no lane without a double runs: the compiler spins their
+// def on such a lane and inlines them elsewhere.
+export const SOFT = new Set(("f64_add f64_sub f64_mul f64_div f64_is_eq"
+  + " f64_is_ne f64_is_lt f64_is_le f64_is_gt f64_is_ge f64_sqrt").split(" "));
 
 export const OPS: Record<string, Op> = {
   ...ops("u64_", "add:+ sub:- mul:* and:& or:| xor:^", "($0 $o $1)",
@@ -99,12 +104,9 @@ export const OPS: Record<string, Op> = {
 };
 
 export const C = String.raw`
-// F64 is IEEE bits, a NaN result the canonical one; Metal has no double
-// (N7), so reading one there fail-stops
-#ifdef __METAL_VERSION__
-#define f64_num(x) (err_post(e.mem, ERR_FIDS), 0.0f)
-#define f64_of(x)  0ull
-#else
+// F64 is IEEE bits, a NaN result the canonical one; a lane without a
+// double has no use of these (its arithmetic spins the def instead)
+#ifndef __METAL_VERSION__
 INLINE double f64_num(u64 x) {
   union { u64 u; double f; } p = { x };
   return p.f;

@@ -69,6 +69,8 @@ type Carb = {
   stat: Set<Name>;
   own: Set<string>;
   lend: Set<string>;
+  // inside a lane-without-a-double half: soft natives are calls
+  metal: number;
 };
 
 type File = Carb & {
@@ -86,6 +88,7 @@ type File = Carb & {
   tabs: Map<string, number>;
   spins: { fid: string; text: string; refs: Set<string> }[];
   spun: Map<string, string>;
+  spins_m: { fid: string; text: string; refs: Set<string> }[];
   clos: Set<string>;
   img: string[];
   lits: Map<string, number>;
@@ -180,12 +183,10 @@ const ERRS = ("|*|*|out of memory: run again with a bigger span, as in"
 // Operations
 // ----------
 
-const CMPS = "is_eq:==:=== is_ne:!=:!== is_lt:< is_le:<= is_gt:> is_ge:>=";
-
 const OPERATIONS: Record<string, Intr> = Object.setPrototypeOf({
-  ...tpl_ops("u32_", "add:+ sub:- and:& or:| xor:^",
+  ...Num.ops("u32_", "add:+ sub:- and:& or:| xor:^",
     "U32_BIN($0, $o, $1)", "(($0 $o $1) >>> 0)"),
-  ...tpl_ops("u32_", CMPS, "U32_BIN($0, $o, $1)", "($0 $o $1)"),
+  ...Num.ops("u32_", Num.CMPS, "U32_BIN($0, $o, $1)", "($0 $o $1)"),
   u32_mul: {
     C:  "U32_BIN($0, *, $1)",
     JS: "(Math.imul($0, $1) >>> 0)",
@@ -199,9 +200,9 @@ const OPERATIONS: Record<string, Intr> = Object.setPrototypeOf({
       + " U32_QUO((u32)($0), (u32)($1)) * $1))",
     JS: "($1 === 0 ? $0 : $0 % $1)",
   },
-  ...tpl_ops("u32_", "inc:+ shl:<< shr:>>:>>>", "U32_BIN($0, $o, 1)",
+  ...Num.ops("u32_", "inc:+ shl:<< shr:>>:>>>", "U32_BIN($0, $o, 1)",
     "(($0 $o 1) >>> 0)"),
-  ...tpl_ops("u32_", "shln:<< shrn:>>:>>>", "($1 >= 32 ? 0 : U32_BIN($0, $o, $1))",
+  ...Num.ops("u32_", "shln:<< shrn:>>:>>>", "($1 >= 32 ? 0 : U32_BIN($0, $o, $1))",
     "($1 >= 32n ? 0 : ($0 $o Number($1)) >>> 0)"),
   u32_not: {
     C:  "((u64)~(u32)($0))",
@@ -228,18 +229,18 @@ const OPERATIONS: Record<string, Intr> = Object.setPrototypeOf({
     JS: "Number($0 & 0xFFFFFFFFn)",
   },
   ...Num.OPS,
-  ...tpl_ops("f32_", "add:+ sub:- mul:* div:/",
+  ...Num.ops("f32_", "add:+ sub:- mul:* div:/",
     "f32_rewrap(f32_unbox($0) $o f32_unbox($1))", "Math.fround($0 $o $1)"),
   f32_neg: {
     C:  "f32_rewrap(-f32_unbox($0))",
     JS: "(-$0)",
   },
-  ...tpl_ops("f32_", CMPS, "((u64)(f32_unbox($0) $o f32_unbox($1)))",
+  ...Num.ops("f32_", Num.CMPS, "((u64)(f32_unbox($0) $o f32_unbox($1)))",
     "($0 $o $1)"),
-  ...tpl_ops("f32_", "sqrt exp log log2 log10 sin cos tan asin acos atan"
+  ...Num.ops("f32_", "sqrt exp log log2 log10 sin cos tan asin acos atan"
     + " sinh cosh tanh floor ceil trunc abs:fabs:abs",
     "f32_rewrap((f32)$o(f32_unbox($0)))", "Math.fround(Math.$o($0))"),
-  ...tpl_ops("f32_", "pow atan2",
+  ...Num.ops("f32_", "pow atan2",
     "f32_rewrap((f32)$o(f32_unbox($0), f32_unbox($1)))",
     "Math.fround(Math.$o($0, $1))"),
   f32_mod: {
@@ -293,7 +294,7 @@ const OPERATIONS: Record<string, Intr> = Object.setPrototypeOf({
     call: true,
     JS:   "nat_divmod($0, $1)",
   },
-  ...tpl_ops("bool_", "or:|:|| xor:^:!==", "(($0) $o ($1))", "($0 $o $1)"),
+  ...Num.ops("bool_", "or:|:|| xor:^:!==", "(($0) $o ($1))", "($0 $o $1)"),
   string_append: {
     JS: "($0 + $1)",
   },
@@ -587,6 +588,8 @@ const LOCAL: Map<Name, string> = new Map();
 
 const FOLDS: Map<HTerm, HTerm | null> = new Map();
 
+const FOLDS_M: Map<HTerm, HTerm | null> = new Map();
+
 const FLATS: Map<Name, boolean> = new Map();
 
 const SIGS: Map<Name, Sig> = new Map();
@@ -594,6 +597,8 @@ const SIGS: Map<Name, Sig> = new Map();
 const BRWS: Map<Name, boolean[]> = new Map();
 
 const SPINES: Map<HTerm, Spine> = new Map();
+
+const SPINES_M: Map<HTerm, Spine> = new Map();
 
 const NODES: Map<Name, Lay> = new Map();
 
@@ -636,16 +641,6 @@ function die(m: string): never {
 // Tpl
 // ===
 
-function tpl_ops(pre: string, names: string, C: string, JS: string):
-  Record<string, Intr> {
-  const out: Record<string, Intr> = {};
-  for (const p of names.split(" ")) {
-    const [k, o = k, jo = o] = p.split(":");
-    out[pre + k] = { C: C.replaceAll("$o", o), JS: JS.replaceAll("$o", jo) };
-  }
-  return out;
-}
-
 function tpl(t: Gen, xs: string[]): string {
   return typeof t !== "string" ? t(xs)
     : t.split(/\$(\d)/).map((p, i) => (i % 2 === 1 ? xs[+p] : p)).join("");
@@ -678,7 +673,8 @@ function memo<K, V>(m: Map<K, V>, k: K, f: () => V): V {
 }
 
 function memo_gc(): void {
-  [OPENS, USES, FOLDS, SPINES, CONSTS, LITS].forEach((m) => m.clear());
+  [OPENS, USES, FOLDS, FOLDS_M, SPINES, SPINES_M, CONSTS, LITS]
+    .forEach((m) => m.clear());
 }
 
 // Probe
@@ -741,7 +737,7 @@ function let_live(cb: Carb, t: HLet): boolean[] {
 // A term's application view and its call: the direct call when the live
 // arguments meet the def's, else Clo.apply over the outermost live one.
 function term_spine(cf: Carb, tm: HTerm): Spine {
-  return memo(SPINES, tm, () => {
+  return memo(cf.metal !== 0 ? SPINES_M : SPINES, tm, () => {
     const apps: Of<"App">[] = [];
     let h = tm;
     let c = term_force(tm);
@@ -870,8 +866,10 @@ function intr_of(c: Carb, k: Name, js = false): Intr | undefined {
   const tld = c.book.tlds[k];
   const it = tld?.$ === "Def" && tld.i === undefined && (tld.b || tld.v === null)
     ? OPERATIONS[eff_name(k)] : undefined;
-  return it !== undefined && (js || it.C !== undefined || it.call === true)
-    ? it : undefined;
+  if (it === undefined || c.metal !== 0 && Num.SOFT.has(eff_name(k))) {
+    return undefined;
+  }
+  return js || it.C !== undefined || it.call === true ? it : undefined;
 }
 
 // Call
@@ -1456,6 +1454,7 @@ function carb_book(src: Bend.Book, roots: Name[]): Carb {
     stat: new Set(),
     own: new Set(),
     lend: new Set(),
+    metal: 0,
   };
   for (const queue = roots.slice(); queue.length > 0;) {
     const d = queue.shift() as Name;
@@ -1480,7 +1479,8 @@ function carb_book(src: Bend.Book, roots: Name[]): Carb {
         if (s.b) {
           cb.bangs.add(s.k);
         }
-        if (intr_of(cb, s.k) === undefined) {
+        // A soft native's def is a call on a lane without a double.
+        if (intr_of(cb, s.k) === undefined || Num.SOFT.has(eff_name(s.k))) {
           own.refs.add(s.k);
           cb.sites.set(s.k, (cb.sites.get(s.k) ?? 0) + 1);
         }
@@ -1555,7 +1555,7 @@ function file_new(cb: Carb, js: boolean): File {
   return { ...cb, js, segs: [], seg: seg_new("", BOX, []), tab: 2,
     cids: new Map(), tabs: new Map(), spins: [], spun: new Map(), clos: new Set(),
     img: [], lits: new Map(), consts: new Map(), reqs: "", fuel: 0,
-    fresh: new Map(), spares: [],
+    fresh: new Map(), spares: [], spins_m: [],
     uses: new Map(), brwl: new Map(), rest: [], def: "" };
 }
 
@@ -2076,6 +2076,9 @@ function emit_frame(fl: File, words: string[], next: string): void {
 // typed, not as words (raytrace GPU 1.72x).
 function emit_jump(fl: File, args: string[], k: Name,
   bang?: boolean): void {
+  if (fl.metal !== 0 && fl.seg.def !== k) {
+    die("a jump in a metal spin: " + k);
+  }
   const fid = seg_fid(k);
   fl.seg.fork ||= bang;
   if (bang || fl.seg.def !== k) {
@@ -2172,10 +2175,25 @@ function emit_put(fl: File, dst: Dst, v: Val): void {
   }
 }
 
-function emit_fuse(fl: File, ck: Call, dst: Dst, tail = false): void {
+function fuse_ers(fl: File, ck: Call): HTerm[] {
   const tld = fl.book.tlds[ck.k] as Def;
   const doms = tele_unbind(fl.book, tld.T).doms;
-  const ers = ck.all.filter((_, i) => i < tld.n && !quant_live(doms[i][0]));
+  return ck.all.filter((_, i) => i < tld.n && !quant_live(doms[i][0]));
+}
+
+function emit_spin_call(fl: File, name: string, ws: string[],
+  out: Val): void {
+  const o = name_local(fl, "o");
+  file_push(fl, `Term ${o}[${out.ws.length}];`);
+  block(fl, `if (${name}(${["e", o, ...ws].join(", ")}) == 0) {`, () => {
+    file_push(fl, "return 0;");
+  });
+  out.ws.forEach((v, j) => file_push(fl, `${v} = ${o}[${j}];`));
+}
+
+function emit_fuse(fl: File, ck: Call, dst: Dst, tail = false): void {
+  const tld = fl.book.tlds[ck.k] as Def;
+  const ers = fuse_ers(fl, ck);
   const { lays, ret } = sig_def(fl, ck.k);
   const flat = flat_of(ck.k);
   const ws = emit_args(fl, ck, tail && !flat);
@@ -2188,13 +2206,7 @@ function emit_fuse(fl: File, ck: Call, dst: Dst, tail = false): void {
     return;
   }
   const out = emit_dst(fl, ret);
-  const name = emit_native(fl, ck, ers);
-  const o = name_local(fl, "o");
-  file_push(fl, `Term ${o}[${out.ws.length}];`);
-  block(fl, `if (${name}(${["e", o, ...ws].join(", ")}) == 0) {`, () => {
-    file_push(fl, "return 0;");
-  });
-  out.ws.forEach((v, j) => file_push(fl, `${v} = ${o}[${j}];`));
+  emit_spin_call(fl, emit_native(fl, ck, ers), ws, out);
   if (tail) {
     bind_dead(fl, []);
   }
@@ -2220,8 +2232,9 @@ function emit_open(fl: File, k: Name): Val[] {
 }
 
 function emit_native(fl: File, ck: Call, ers: HTerm[]): string {
-  const key = [ck.k, ...ers.map((e) => JSON.stringify(lay_of(fl.book, e)))]
-    .join("|");
+  const key = (fl.metal !== 0 ? "M|" : "")
+    + [ck.k, ...ers.map((e) => JSON.stringify(lay_of(fl.book, e)))]
+      .join("|");
   const got = fl.spun.get(key);
   if (got !== undefined) {
     return seg_ref(fl, got);
@@ -2235,7 +2248,8 @@ function emit_native(fl: File, ck: Call, ers: HTerm[]): string {
   seg.fid = name;
   const dst = val_new(seg.ret.ks.map(() => name_local(fl, "v")), seg.ret);
   emit_body(fl, tld.h as HTerm, tld.T, ers, vals, dst);
-  fl.spins.push({ fid: name, refs: seg.refs, text: [`${seg.lines.length < SPIN_FAR ? "INLINE" : "FAR"} Term ${name}(Env e, THR Term* o${
+  (fl.metal !== 0 ? fl.spins_m : fl.spins).push({ fid: name, refs: seg.refs,
+    text: [`${seg.lines.length < SPIN_FAR ? "INLINE" : "FAR"} Term ${name}(Env e, THR Term* o${
     seg.ks.map((k, i) => `, ${lay_c(k)} r${i}`).join("")}) {`,
   "  u32 wpoll = 0;",
   ...dst.ws.map((v, j) => `  ${lay_c(seg.ret.ks[j])} ${v} = 0;`),
@@ -2249,6 +2263,26 @@ function emit_native(fl: File, ck: Call, ers: HTerm[]): string {
 
 function emit_dst(fl: File, lay: Lay, k = "v"): Val {
   return val_new(emit_hold(fl, lay.ks.map(() => "0"), k, lay.ks), lay);
+}
+
+// A value's words joined for a native: halves into one u64.
+function intr_join(fl: File, v: Val): string {
+  return v.ws.length === 2 && HALF[v.lay.arms?.[0]?.k ?? ""] === v.lay
+    ? emit_alias(fl, `((u64)${v.ws[1]} << 32 | ${v.ws[0]})`, "a", "w64")
+    : val_word(v);
+}
+
+// A native's value from its joined words, split when it is halves.
+function intr_out(fl: File, it: Intr, k: Name, ws: string[]): Val {
+  const C = it.C as string;
+  const out = tpl(C, /\$(\d)[^]*\$\1/.test(C)
+    ? ws.map((a) => emit_alias(fl, a, "a")) : ws);
+  const lay = sig_def(fl, k).ret;
+  if (lay.ks.length === 2 && HALF[lay.arms![0].k] === lay) {
+    const w = emit_alias(fl, out, "w", "w64");
+    return val_new([`(u32)${w}`, `(${w} >> 32)`], lay);
+  }
+  return val_new([out], lay.ks.length === 1 ? lay : BOX);
 }
 
 function emit_intr(fl: File, it: Intr, x: HTerm,
@@ -2267,30 +2301,36 @@ function emit_intr(fl: File, it: Intr, x: HTerm,
   if (it.call === true && it.C === undefined) {
     return arr_op(fl, op, lay_el(fl.book, m.all[0]), args);
   }
-  // each argument in its parameter's layout; a 64-bit word enters joined
-  const lays = sig_def(fl, k).lays;
-  const ws = args.map((a, i) => val_to(fl, a, lays[i])).map((v) =>
-    (val_own(fl, v), v.ws.length === 2
-    && HALF[v.lay.arms?.[0]?.k ?? ""] === v.lay ? emit_alias(fl,
-      `((u64)${v.ws[1]} << 32 | ${v.ws[0]})`, "a", "w64") : val_word(v)));
+  // each argument in its parameter's layout
+  const { lays, ret } = sig_def(fl, k);
+  const vs = args.map((a, i) => val_to(fl, a, lays[i]));
+  vs.forEach((v) => val_own(fl, v));
+  // A soft native runs its def where no double exists, else the native;
+  // the arguments evaluate once, shared by both halves.
+  if (fl.metal === 0 && Num.SOFT.has(op) && m.args.length === lays.length) {
+    const dst = emit_dst(fl, ret);
+    file_push(fl, "#ifdef __METAL_VERSION__");
+    fl.metal += 1;
+    const ck = { k, args: m.args, all: m.all };
+    emit_spin_call(fl, emit_native(fl, ck, fuse_ers(fl, ck)),
+      vs.flatMap((v) => v.ws), dst);
+    fl.metal -= 1;
+    file_push(fl, "#else");
+    emit_put(fl, dst, intr_out(fl, it, k, vs.map((v) => intr_join(fl, v))));
+    file_push(fl, "#endif");
+    return val_new(dst.ws, ret);
+  }
+  const ws = vs.map((v) => intr_join(fl, v));
   if (Array.isArray(it.C)) {
     const as = ws.map((z) => emit_alias(fl, z, "a"));
-    const vs: string[] = [];
+    const os: string[] = [];
     for (const p of it.C) {
-      vs.push(emit_alias(fl, tpl(p, [...as, ...vs]), "a"));
+      os.push(emit_alias(fl, tpl(p, [...as, ...os]), "a"));
     }
-    return val_new(vs, lay_of(fl.book, ty ?? tele_unbind(fl.book,
+    return val_new(os, lay_of(fl.book, ty ?? tele_unbind(fl.book,
       (fl.book.tlds[k] as Bend.Def).T).ret));
   }
-  const C = it.C as string;
-  const out = tpl(C, /\$(\d)[^]*\$\1/.test(C)
-    ? ws.map((a) => emit_alias(fl, a, "a")) : ws);
-  const lay = sig_def(fl, k).ret;
-  if (lay.ks.length === 2 && HALF[lay.arms![0].k] === lay) {
-    const w = emit_alias(fl, out, "w", "w64");
-    return val_new([`(u32)${w}`, `(${w} >> 32)`], lay);
-  }
-  return val_new([out], lay.ks.length === 1 ? lay : BOX);
+  return intr_out(fl, it, k, ws);
 }
 
 // A closure moves its captures into a node (each one use of its binding,
@@ -2386,7 +2426,7 @@ function emit_ctr(fl: File, x: Of<"Ctr">, ty: HTerm | null,
 
 function emit_fold(fl: File, t: HTerm): HTerm | null {
   const s = term_strip(t);
-  const r = memo(FOLDS, s, () => {
+  const r = memo(fl.metal !== 0 ? FOLDS_M : FOLDS, s, () => {
     if (term_const(s)) {
       return s;
     }
@@ -2609,6 +2649,9 @@ function emit_body(fl: File, tm: HTerm, ty0: HTerm | null,
 // is a task); in sequence one frame read by every step, the last jumping
 // into the joiner. Both paths hold the same values, so open one joiner.
 function emit_fork(fl: File, x: HLet, ers: HTerm[]): void {
+  if (fl.metal !== 0) {
+    die("a fork in a metal spin");
+  }
   const o = term_open(x);
   const calls = x.v.map((v) => call_kind(fl, v) as Call);
   const fork = calls.length > 1;
@@ -3079,8 +3122,8 @@ export function compile_book(book: Bend.Book): string {
   } while (was !== facts());
   const reach = (from: string[], set = new Set<string>()): Set<string> => {
     const grab = (fid: string) => set.has(fid) || (set.add(fid)
-      && [...fl.segs, ...fl.spins].find((s) => s.fid === fid)?.refs
-        .forEach(grab));
+      && [...fl.segs, ...fl.spins, ...fl.spins_m]
+        .find((s) => s.fid === fid)?.refs.forEach(grab));
     from.forEach(grab);
     return set;
   };
@@ -3095,6 +3138,7 @@ export function compile_book(book: Bend.Book): string {
     s.host = !dev.has(s.fid);
   }
   fl.spins = fl.spins.filter((s) => live.has(s.fid));
+  fl.spins_m = fl.spins_m.filter((s) => live.has(s.fid));
   const entries = [...fl.segs, seg_new("io_emit", BOX, [""]),
     seg_new("clo_apply", BOX, ["", ""])];
   const desc = show === null ? [] : ["#if !DEVICE",
@@ -3108,8 +3152,12 @@ export function compile_book(book: Bend.Book): string {
     `#define BLK_SHR ${Number(cb.hot.has("t:Array"))}`);
   const tabs = [defs.join("\n"), ...[...fl.tabs].map(([r, i]) =>
     `CONSTV u64 TAB_${i}[] = { ${r} };`)].join("\n\n");
+  const spins_m = fl.spins_m.length === 0 ? []
+    : ["#ifdef __METAL_VERSION__", ...fl.spins_m.map((s) => s.text),
+      "#endif"];
+  // Metal first: a host spin may hold a soft site, never the reverse.
   const spins = [`CONSTV u64 STAT_IMG[] = { ${fl.img.join(", ") || 0} };`,
-    ...fl.spins.map((s) => s.text)].join("\n\n");
+    ...spins_m, ...fl.spins.map((s) => s.text)].join("\n\n");
   const segs = compile_segs(fl);
   if (/\bundefined\b/.test([tabs, spins, segs, fl.reqs].join("\n"))) {
     die("an unbound name in the emitted C");
@@ -5874,7 +5922,12 @@ static void show_val(Env e, u32 d, const Term* w, char chain) {
     case 0: printf("%u", (u32)w[0]); break;
     case 1: show_f32(f32_unbox(w[0]), 9); break;
     case 8: printf("%lluu64", (unsigned long long)(w[1] << 32 | (u32)w[0])); break;
-    case 9: show_f32(f64_num(w[1] << 32 | (u32)w[0]), 17), printf("f64"); break;
+    case 9:
+#ifdef __METAL_VERSION__
+      break; // show runs on the host; a double would not compile here
+#else
+      show_f32(f64_num(w[1] << 32 | (u32)w[0]), 17), printf("f64"); break;
+#endif
     case 2: printf("%llun", (unsigned long long)w[0]); break;
     case 3:
       putchar('\'');

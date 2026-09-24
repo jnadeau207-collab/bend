@@ -2,7 +2,9 @@
 # ===
 # Base's 64-bit numbers (bend2/docs/F64_CONTRACT.md), read right after
 # base.bend as part of Base: U64, then F64 as its bits and its software
-# core, the contract's reference and the device lane's code.
+# core, the contract's reference and the device lane's code. The core
+# stays flat (one binding per let, no bang, self-calls tail-only): the
+# device lane spins it, and only flat defs spin.
 
 type U64 is Data:
   U64{data: Word(64n)}
