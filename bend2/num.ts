@@ -12,33 +12,15 @@ export function f64_from_bits(n: bigint): number {
   return F64_VIEW.getFloat64(0);
 }
 
-const blen = (n: bigint): number => n.toString(2).length;
-
-// n * 2^e (n > 0; st: a nonzero tail below n, past its round bit) to
-// nearest even, as bits: the lsb is 2^-1074 or 52 below the top, and a
-// carry past the hidden bit bumps the exponent field
-function f64_round(n: bigint, e: number, st: boolean): bigint {
-  const lsb = Math.max(blen(n) - 1 + e - 52, -1074);
-  const sh = BigInt(lsb - e);
-  if (sh <= 0n) {
-    return (BigInt(lsb + 1074) << 52n) + (n << -sh);
-  }
-  const half = 1n << sh - 1n;
-  const r = n & (1n << sh) - 1n;
-  const m = (n >> sh) + BigInt(r > half || r === half && (st || (n >> sh & 1n) === 1n));
-  return (BigInt(lsb + 1074) << 52n) + m;
-}
-
-// a decimal's bits, exactly rounded; null past the largest finite
+// a decimal's bits; null past the largest finite (Number parses
+// correctly rounded, as the f32 literal beside it already relies on)
 export function f64_read(t: string): bigint | null {
-  const [, i, f = "", x = "0"] = /^(\d+)(?:\.(\d+))?(?:[eE]([+-]?\d+))?$/.exec(t)!;
-  const d = BigInt(i + f);
-  const e = Number(x) - f.length;
-  const q = 10n ** BigInt(Math.abs(e));
-  const k = Math.max(0, 64 + blen(q) - blen(d));
-  const b = d === 0n ? 0n : e >= 0 ? f64_round(d * q, 0, false)
-    : f64_round((d << BigInt(k)) / q, -k, (d << BigInt(k)) % q !== 0n);
-  return b < 0x7FF0000000000000n ? b : null;
+  const v = Number(t);
+  if (!isFinite(v)) {
+    return null;
+  }
+  F64_VIEW.setFloat64(0, v);
+  return F64_VIEW.getBigUint64(0);
 }
 
 
