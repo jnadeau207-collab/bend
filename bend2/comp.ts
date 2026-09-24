@@ -6266,12 +6266,9 @@ function cli(argv) {
 // ====
 
 // char_show: an escape, a \u{hex}, else the code point
-function show_chr(c, q) {
-  const k = { 10: "n", 9: "t", 13: "r", 0: "0", 92: "\\" }[c]
-    ?? (c === q.codePointAt(0) ? q : null);
-  return k !== null ? "\\" + k : c < 32 || c === 127
-    ? "\\u{" + c.toString(16) + "}" : String.fromCodePoint(c);
-}
+const ESCAPES = ${JSON.stringify(Bend.ESCAPES)};
+
+${Bend.chr_show}
 
 // A pure main's value as term_show spells it (see show_main); chain is the
 // bracket it continues, or 0.
@@ -6295,9 +6292,9 @@ function show_val(D, N, d, v, chain) {
     : D[d] === 1 ? f32_show(v)
     : D[d] === 9 ? f32_show(f64_num(v), 17) + "f64"
     : D[d] === 2 ? v + "n"
-    : D[d] === 3 ? "'" + show_chr(v.codePointAt(0), "'") + "'"
+    : D[d] === 3 ? "'" + chr_show(v.codePointAt(0), "'") + "'"
     : D[d] === 4 ? "\"" + [...v].map((c) =>
-      show_chr(c.codePointAt(0), "\"")).join("") + "\""
+      chr_show(c.codePointAt(0), "\"")).join("") + "\""
     : D[d] === 5 ? "{==}"
     : D[d] === 8 ? v + "u64"
     : "[" + v.map((x) => show_val(D, N, D[d + 1], x, 0)).join(", ") + "]";

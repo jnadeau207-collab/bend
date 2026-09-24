@@ -1282,9 +1282,20 @@ export function quant_show(q: Quant): string {
   return { None: "-", Lone: "", Many: "+" }[q.$];
 }
 
-const ESCAPES: Record<string, U32> = {
+export const ESCAPES: Record<string, U32> = {
   "n": 10, "t": 9, "r": 13, "0": 0, "\\": 92, "'": 39, '"': 34,
 };
+
+export function chr_show(n: U32, quote: string): string {
+  const k = Object.keys(ESCAPES).find((k) => ESCAPES[k] === n && ((k !== "'" && k !== '"') || k === quote));
+  if (k !== undefined) {
+    return "\\" + k;
+  }
+  if (n < 32 || n === 127 || (n >= 0xd800 && n <= 0xdfff) || n > 0x10ffff) {
+    return "\\u{" + n.toString(16) + "}";
+  }
+  return String.fromCodePoint(n);
+}
 
 export function term_key(tm: LTerm): string {
   return JSON.stringify(tm, (k, v) => k === "s" ? undefined : v);
@@ -1357,16 +1368,6 @@ export function term_show(term: LTerm, top: number = -1, bnd: Name[] = []): stri
       return null;
     }
     return l.concat(r);
-  }
-  function chr_show(n: U32, quote: string): string {
-    const k = Object.keys(ESCAPES).find((k) => ESCAPES[k] === n && ((k !== "'" && k !== '"') || k === quote));
-    if (k !== undefined) {
-      return "\\" + k;
-    }
-    if (n < 32 || n === 127 || (n >= 0xd800 && n <= 0xdfff) || n > 0x10ffff) {
-      return "\\u{" + n.toString(16) + "}";
-    }
-    return String.fromCodePoint(n);
   }
   function lit_text(v: string): string {
     return [...v].map((c) => chr_show(c.codePointAt(0) as U32, "\"")).join("");
