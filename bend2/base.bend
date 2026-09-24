@@ -3026,36 +3026,18 @@ def Map.set.go(
 def Map.set(a, -V: Kind(a), m: Map<a, V>, key: String, x: V) -> Map<a, V>:
   Map.set.go(a, V, x, Map.seek(a, V, m, key))
 
-def Map.has.leaf(a, -V: Kind(a), v: V, r: (String & String) & Cmp) ->
-  Map<a, V> & Bool:
-  ((key2, k2), c) = r
-  (MLeaf{k2, v}, Cmp.is_eq(c))
-
-law Map.has:
-  for -a  : Quant
-  for -V  : Kind(a)
-  for m   : Map<a, V>
-  for key : String
-  Map<a, V> & Bool
-
-def Map.has.bit(
-  a, -V: Kind(a), lo: Map<a, V>, hi: Map<a, V>, p2: Nat, kb: String & Bool
+def Map.has.fin(
+  a, -V: Kind(a), r: Map<a, V> & String & Maybe<&2, String>
 ) -> Map<a, V> & Bool:
-  (key2, b) = kb
-  match b:
-    case False{}:
-      Map.lo(a, V, Bool, p2, hi, Map.has(a, V, lo, key2))
-    case True{}:
-      Map.hi(a, V, Bool, p2, lo, Map.has(a, V, hi, key2))
+  (m2, key2, found) = r
+  match found:
+    case None{}:
+      (m2, False{})
+    case Some{k}:
+      (m2, String.eq(key2, k))
 
-def Map.has(a, V, m, key):
-  match m:
-    case MTip{}:
-      (MTip{}, False{})
-    case MLeaf{k, v}:
-      Map.has.leaf(a, V, v, String.cmp(key, k))
-    case MNode{+pos, lo, hi}:
-      Map.has.bit(a, V, lo, hi, pos, Map.bit(key, pos))
+def Map.has(a, -V: Kind(a), m: Map<a, V>, key: String) -> Map<a, V> & Bool:
+  Map.has.fin(a, V, Map.seek(a, V, m, key))
 
 def Map.get.leaf(-V: Data, d: V, +v: V, r: (String & String) & Cmp) ->
   Map<&2, V> & V:
