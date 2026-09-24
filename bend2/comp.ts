@@ -124,8 +124,6 @@ type Call = {
   bang?: boolean;
 };
 
-// A soft op's C runs only where the lane has a double; elsewhere its def
-// does (a lane with no JS runs its def too).
 type Intr = {
   C?: string | string[];
   call?: boolean;
@@ -224,10 +222,9 @@ const OPERATIONS: Record<string, Intr> = Object.setPrototypeOf({
     C:  "((u64)(u32)($0))",
     JS: "Number($0 & 0xFFFFFFFFn)",
   },
-  // a U64 is one u64 in C (its halves joined) and a BigInt in JS
   ...tpl_ops("u64_", "add:+ sub:- mul:* and:& or:| xor:^", "($0 $o $1)",
     "BigInt.asUintN(64, $0 $o $1)"),
-  ...tpl_ops("u64_", CMPS, "((u64)($0 $o $1))", "($0 $o $1)"),
+  ...tpl_ops("u64_", CMPS, "($0 $o $1)", "($0 $o $1)"),
   ...tpl_ops("u64_", "inc:+ shl:<< shr:>>", "($0 $o 1)",
     "BigInt.asUintN(64, $0 $o 1n)"),
   ...tpl_ops("u64_", "shln:<< shrn:>>", "($1 >= 64 ? 0 : $0 $o $1)",
@@ -244,14 +241,6 @@ const OPERATIONS: Record<string, Intr> = Object.setPrototypeOf({
     C:  "(~$0)",
     JS: "BigInt.asUintN(64, ~$0)",
   },
-  u64_is_zero: {
-    C:  "($0 == 0)",
-    JS: "($0 === 0n)",
-  },
-  u64_cmp: {
-    C:  "(($0 > $1) + ($0 >= $1))",
-    JS: "cmp_new($0, $1)",
-  },
   u64_from_nat: {
     C:  "$0",
     JS: "$0",
@@ -264,12 +253,10 @@ const OPERATIONS: Record<string, Intr> = Object.setPrototypeOf({
     C:  "u64_mul_hi($0, $1)",
     JS: "($0 * $1 >> 64n)",
   },
-  // an F64 op computes in double where the lane has one (fma has none in
-  // JS), else its def
   ...tpl_ops("f64_", "add:+ sub:- mul:* div:/",
     "f64_of(f64_num($0) $o f64_num($1))", "f64_of(f64_num($0) $o f64_num($1))",
     true),
-  ...tpl_ops("f64_", CMPS, "((u64)(f64_num($0) $o f64_num($1)))",
+  ...tpl_ops("f64_", CMPS, "(f64_num($0) $o f64_num($1))",
     "(f64_num($0) $o f64_num($1))", true),
   ...tpl_ops("f64_", "sqrt", "f64_of(sqrt(f64_num($0)))",
     "f64_of(Math.sqrt(f64_num($0)))", true),
@@ -354,10 +341,8 @@ const OPERATIONS: Record<string, Intr> = Object.setPrototypeOf({
     C:  "nat_chk(e, $0 + $0)",
     JS: "nat_chk($0 << 1n)",
   },
-  nat_cmp: {
-    C:  "(($0 > $1) + ($0 >= $1))",
-    JS: "cmp_new($0, $1)",
-  },
+  ...tpl_ops("", "nat_cmp u64_cmp", "(($0 > $1) + ($0 >= $1))",
+    "cmp_new($0, $1)"),
   nat_is_lt: {
     C:  "($0 < $1)",
     JS: "($0 < $1)",
@@ -501,8 +486,6 @@ INLINE U32 f32_to_u32(U32 a) {
   return v >= 0.0f && v < 4294967296.0f ? (u32)v : 0;
 }
 
-// An F64's bits as a double and back, a NaN result the canonical one; a
-// lane with no double runs F64's defs instead.
 #ifndef __METAL_VERSION__
 INLINE double f64_num(u64 x) {
   union { u64 u; double f; } p = { x };
@@ -519,7 +502,6 @@ INLINE u64 u64_clz(u64 x) {
   return x >> 32 != 0 ? CLZ((u32)(x >> 32)) : x != 0 ? 32 + CLZ((u32)x) : 64;
 }
 
-// the high half of a 128-bit product, over 32-bit partial products
 INLINE u64 u64_mul_hi(u64 a, u64 b) {
   u64 lo = (a & 0xFFFFFFFF) * (b & 0xFFFFFFFF);
   u64 m1 = (a >> 32) * (b & 0xFFFFFFFF) + (lo >> 32);
@@ -556,8 +538,6 @@ static Term f64_read(Env e, Term s);
 #endif
 `.slice(1),
   IO: String.raw`
-// the shortest of d digits at most that reads back (an f32 at 9, an f64 at
-// 17, where at a power of two the decimal just above may read back first)
 static int f32_text(char* buf, double v, int d) {
   int n = 0;
   int p = 0;
@@ -598,7 +578,6 @@ static Term f32_show(Env e, Term x) {
   return io_str(e, buf, f32_text(buf, f32_unbox(x), 9));
 }
 
-// the float a whole string spells (strtof's or strtod's grammar, no hex)
 static bool io_real(Env e, Term s, double* v, bool f32) {
   u64 n = 0;
   char* text = io_cstr(e, s, &n);
@@ -620,7 +599,6 @@ static Term f64_show(Env e, Term x) {
   return io_str(e, buf, f32_text(buf, f64_num(x), 17));
 }
 
-// only a program that holds F64 has its cid
 #ifdef CID_F64
 static Term f64_read(Env e, Term s) {
   double v;
@@ -667,7 +645,6 @@ function nat_chk(n) {
   return n;
 }
 
-// the shortest decimal that reads back (an f32 at 9 digits, an f64 at 17)
 function f32_show(x, n = 9) {
   if (x !== x) {
     return "nan";
@@ -686,7 +663,6 @@ function f32_show(x, n = 9) {
 
 const F64_VIEW = new DataView(new ArrayBuffer(8));
 
-// an F64's bits (a BigInt) as a number and back, a NaN the canonical one
 function f64_num(x) {
   F64_VIEW.setBigUint64(0, x);
   return F64_VIEW.getFloat64(0);
@@ -705,7 +681,6 @@ function f32_from_bits(u) {
   return new Float32Array(new Uint32Array([u]).buffer)[0];
 }
 
-// the float a string spells, f its value (an F64's: its bits, f64_of)
 function f32_read(s, f = Math.fround) {
   const re = /^\s*[+-]?((\d+\.?\d*|\.\d+)(e[+-]?\d+)?|inf(inity)?|nan)$/i;
   const v = Number(s.replace(/inf\w*/i, "Infinity"));
@@ -1210,7 +1185,6 @@ function lay_box(lay: Lay): boolean {
   return lay.arms === null && lay.ks[0] === "box";
 }
 
-// A U64 or F64: two w32 halves, low first, that a native reads as a u64.
 function lay_w64(lay: Lay): boolean {
   return lay.arms !== null && ["U64", "F64"].includes(lay.arms[0].k);
 }
@@ -2383,7 +2357,6 @@ function emit_native(fl: File, ck: Call, ers: HTerm[]): string {
   const seg = fl.seg;
   seg.fid = name;
   const dst = val_new(seg.ret.ks.map(() => name_local(fl, "v")), seg.ret);
-  // a soft op's spin runs its C where the lane has a double, else its def
   const it = tld.b ? OPERATIONS[eff_name(ck.k)] : undefined;
   if (it?.soft) {
     file_push(fl, "#ifndef __METAL_VERSION__");
@@ -2441,8 +2414,6 @@ function emit_intr(fl: File, it: Intr, x: HTerm,
   return intr_c(fl, it.C as string, k, vs, lay_of(fl.book, ty));
 }
 
-// A native's C over values in its parameters' layouts: a U64 or F64 enters
-// as one u64, its halves joined, and leaves as its halves.
 function intr_c(fl: File, C: string, k: Name, vs: Val[], lay: Lay): Val {
   const { lays, ret } = sig_def(fl, k);
   const ws = vs.map((v, i) => lay_w64(lays[i]) ? emit_alias(fl,
@@ -6349,15 +6320,14 @@ function show_val(D, N, d, v, chain) {
     return o === "{" || chain !== o ? s + "}])"[D[a + 3]] : s;
   }
   return D[d] === 0 ? String(v)
-    : D[d] === 1 ? f32_show(v).replace(/^-?\d+(?=e|$)/, "$&.0")
+    : D[d] === 1 || D[d] === 9 ? f32_show(D[d] > 1 ? f64_num(v) : v, D[d] > 1
+      ? 17 : 9).replace(/^-?\d+(?=e|$)/, "$&.0") + (D[d] > 1 ? "f64" : "")
     : D[d] === 2 ? v + "n"
     : D[d] === 3 ? "'" + show_chr(v.codePointAt(0), "'") + "'"
     : D[d] === 4 ? "\"" + [...v].map((c) =>
       show_chr(c.codePointAt(0), "\"")).join("") + "\""
     : D[d] === 5 ? "{==}"
     : D[d] === 8 ? v + "u64"
-    : D[d] === 9 ? f32_show(f64_num(v), 17).replace(/^-?\d+(?=e|$)/, "$&.0")
-      + "f64"
     : "[" + v.map((x) => show_val(D, N, D[d + 1], x, 0)).join(", ") + "]";
 }
 

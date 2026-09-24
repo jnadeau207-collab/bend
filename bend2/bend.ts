@@ -714,8 +714,6 @@ export function term_strip<X>(tm: TermOf<X>): TermOf<X> {
   return t;
 }
 
-// tm rebuilt over f of each child; a binder, a variable, a reference and
-// a substitution are the caller's.
 export function term_map<A, B>(tm: TermOf<A>, f: (t: TermOf<A>) => TermOf<B>): TermOf<B> {
   switch (tm.$) {
     case "Typ": {
@@ -1225,7 +1223,6 @@ export function u32_from_term<X>(tm: TermOf<X>, k: "U32" | "F32" = "U32"): numbe
   return n;
 }
 
-// a U64's 64 bits from its U32 halves (an F64's, of its U64)
 export function u64_from_term<X>(tm: TermOf<X>, k = "U64"): bigint | null {
   const t = term_strip(tm);
   if (t.$ !== "Ctr" || t.k !== k || t.x.length !== (k === "F64" ? 1 : 2)) {
@@ -1263,9 +1260,8 @@ export function f64_from_bits(n: bigint): number {
   return F32_VIEW.getFloat64(0);
 }
 
-// The shortest decimal that reads back to the same f32 (f64 at n = 17), as
-// a literal (a point before an e); nan, inf and -inf have none and print as
-// such.
+// The shortest decimal that reads back to the same f32, as a literal (a
+// point before an e); nan, inf and -inf have none and print as such.
 function f32_show(x: number, n = 9): string {
   let s = "nan";
   for (let p = 1; x === x && p <= n
@@ -3245,7 +3241,6 @@ export function term_compare(mode: "EQ" | "LE", book: Book, lhs: HTerm, rhs: HTe
     case "Lit": {
       return b.$ === "Lit" && a.k === b.k && a.v === b.v;
     }
-    // the rest match by head (its kind and name) and children, all EQ
     case "App": {
       return b.$ === "App"
           && term_compare("EQ", book, a.f, b.f, dep)
