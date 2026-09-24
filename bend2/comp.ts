@@ -5843,14 +5843,15 @@ static void io_wait(Env e) {
   if (io_bit(set[0], io_wake_fd[0], false)) {
     io_take(e);
   }
-  u64   now  = io_tick();
-  IoQue todo = io_park;
+  u64    now  = io_tick();
+  IoQue  todo = io_park;
+  IoAct* ord  = NULL;
   io_park = (IoQue){0};
   while (todo.head != NULL) {
     IoAct* a   = io_pop(&todo);
     bool   due = (a->evts != 0
         && io_bit(set[a->evts == POLLOUT], (int)a->work.word, false))
-      || (a->time == soon && soon != 0 && soon <= now);
+      || (a->time != 0 && a->time <= now);
     if (!due) {
       io_push(&io_park, a);
       continue;
@@ -5858,8 +5859,19 @@ static void io_wait(Env e) {
     Term x = a->work.pack(e, &a->work);
     if (x != IO_PARK) {
       a->item = x;
-      io_push(&io_runs, a);
+      IoAct** at = &ord;
+      while (*at != NULL && (*at)->time <= a->time) {
+        at = &(*at)->next;
+      }
+      a->next = *at;
+      *at = a;
     }
+  }
+  // the due run in deadline order, however late this wait woke
+  while (ord != NULL) {
+    IoAct* a = ord;
+    ord = a->next;
+    io_push(&io_runs, a);
   }
   free(set[0]);
 }
@@ -6388,18 +6400,15 @@ function io_wait(io) {
   sys.select(top + 1, sys.ptr(set), sys.ptr(set, len), null,
     ms < 0 ? null : sys.ptr(tv));
   const now = performance.now();
-  io.waits = io.waits.filter((w) => {
-    const ready = w.at === soon && soon <= now || w.fd !== undefined
-      && set[at(w)] & 1 << (w.fd & 7);
-    if (ready) {
-      io_push(io_wake, w, false);
-    }
-    return !ready;
-  });
+  const due = io.waits.filter((w) => w.at <= now || w.fd !== undefined
+    && set[at(w)] & 1 << (w.fd & 7));
+  io.waits = io.waits.filter((w) => !due.includes(w));
+  due.sort((a, b) => (a.at ?? 0) - (b.at ?? 0))
+    .forEach((w) => io_push(io_wake, w, false));
 }
 
-// Resume k with more's value; undefined means re-parked. A wait wakes only
-// the earliest due timers: sleeps end in deadline order, however late.
+// Resume k with more's value; undefined means re-parked. A wait runs its
+// due in deadline order: sleeps end in order, however late it woke.
 function io_wake(w) {
   const x = w.more();
   return x === undefined ? undefined : w.k(x);
