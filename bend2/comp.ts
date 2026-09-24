@@ -127,7 +127,6 @@ type Call = {
 type Intr = {
   C?: string | string[];
   call?: boolean;
-  soft?: boolean;
   JS?: string;
 };
 
@@ -227,17 +226,17 @@ const OPERATIONS: Record<string, Intr> = Object.setPrototypeOf({
   },
   ...tpl_ops("u64_", "add:+ sub:- mul:* and:& or:| xor:^", "($0 $o $1)",
     "BigInt.asUintN(64, $0 $o $1)"),
-  ...tpl_ops("u64_", CMPS, "($0 $o $1)", "($0 $o $1)"),
+  ...tpl_ops("u64_", CMPS, "($0 $o $1)"),
   ...tpl_ops("u64_", "shln:<< shrn:>>", "($1 >= 64 ? 0 : $0 $o $1)",
     "($1 >= 64n ? 0n : BigInt.asUintN(64, $0 $o $1))"),
   u64_div: {
     C:  "($1 ? $0 / $1 : 0)",
     JS: "($1 ? $0 / $1 : 0n)",
   },
-  ...tpl_ops("u64_", "mod", "($1 ? $0 % $1 : $0)", "($1 ? $0 % $1 : $0)"),
-  ...tpl_ops("u64_", "from_nat to_nat", "$0", "$0"),
+  ...tpl_ops("u64_", "mod", "($1 ? $0 % $1 : $0)"),
+  ...tpl_ops("u64_", "from_nat to_nat", "$0"),
   u64_clz: {
-    C:  "u64_clz($0)",
+    C:  "($0 >> 32 ? CLZ((u32)($0 >> 32)) : $0 ? 32 + CLZ((u32)$0) : 64)",
     JS: "(64 - $0.toString(2).length + !$0)",
   },
   u64_mul_hi: {
@@ -245,31 +244,20 @@ const OPERATIONS: Record<string, Intr> = Object.setPrototypeOf({
     JS: "($0 * $1 >> 64n)",
   },
   ...tpl_ops("f64_", "add:+ sub:- mul:* div:/",
-    "f64_of(f64_num($0) $o f64_num($1))", "f64_of(f64_num($0) $o f64_num($1))",
-    true),
-  ...tpl_ops("f64_", CMPS, "(f64_num($0) $o f64_num($1))",
-    "(f64_num($0) $o f64_num($1))", true),
+    "f64_of(f64_num($0) $o f64_num($1))"),
+  ...tpl_ops("f64_", CMPS, "(f64_num($0) $o f64_num($1))"),
   ...tpl_ops("f64_", "sqrt", "f64_of(sqrt(f64_num($0)))",
-    "f64_of(Math.sqrt(f64_num($0)))", true),
+    "f64_of(Math.sqrt(f64_num($0)))"),
   f64_fma: {
-    C:    "f64_of(fma(f64_num($0), f64_num($1), f64_num($2)))",
-    soft: true,
+    C: "f64_of(fma(f64_num($0), f64_num($1), f64_num($2)))",
   },
   f64_to_u64: {
-    C:    "(f64_num($0) >= 0 && f64_num($0) < 18446744073709551616.0"
-      + " ? (u64)f64_num($0) : 0)",
-    soft: true,
+    C:    "(f64_num($0) >= 0 && f64_num($0) < 0x1p64 ? (u64)f64_num($0) : 0)",
     JS:   "(f64_num($0) >= 0 && f64_num($0) < 2 ** 64"
       + " ? BigInt(Math.trunc(f64_num($0))) : 0n)",
   },
-  f64_to_f32: {
-    C:    "(f64_num($0) != f64_num($0) ? 0x7FC00000"
-      + " : f32_rewrap((f32)f64_num($0)))",
-    soft: true,
-    JS:   "Math.fround(f64_num($0))",
-  },
   ...tpl_ops("", "u64_to_f64:(double):Number f32_to_f64:f32_unbox:",
-    "f64_of($o($0))", "f64_of($o($0))", true),
+    "f64_of($o($0))"),
   f64_show: {
     C:    "f32_show(e, $0, 1)",
     call: true,
@@ -334,10 +322,7 @@ const OPERATIONS: Record<string, Intr> = Object.setPrototypeOf({
   },
   ...tpl_ops("", "nat_cmp u64_cmp", "(($0 > $1) + ($0 >= $1))",
     "cmp_new($0, $1)"),
-  nat_is_lt: {
-    C:  "($0 < $1)",
-    JS: "($0 < $1)",
-  },
+  ...tpl_ops("nat_", "is_lt", "($0 < $1)"),
   nat_divmod: {
     C:    ["($1 == 0 ? 0 : $0 / $1)", "($1 == 0 ? $0 : $0 % $1)"],
     call: true,
@@ -487,16 +472,13 @@ INLINE u64 f64_of(double x) {
 }
 #endif
 
-INLINE u64 u64_clz(u64 x) {
-  return x >> 32 != 0 ? CLZ((u32)(x >> 32)) : x != 0 ? 32 + CLZ((u32)x) : 64;
-}
-
-INLINE u64 u64_mul_hi(u64 a, u64 b) {
-  u64 lo = (a & 0xFFFFFFFF) * (b & 0xFFFFFFFF);
-  u64 m1 = (a >> 32) * (b & 0xFFFFFFFF) + (lo >> 32);
-  u64 m2 = (a & 0xFFFFFFFF) * (b >> 32) + (m1 & 0xFFFFFFFF);
-  return (a >> 32) * (b >> 32) + (m1 >> 32) + (m2 >> 32);
-}
+#ifdef __METAL_VERSION__
+#define u64_mul_hi mulhi
+#elif defined(BEND_RTC)
+#define u64_mul_hi __umul64hi
+#else
+#define u64_mul_hi(a, b) ((u64)((unsigned __int128)(a) * (b) >> 64))
+#endif
 
 INLINE Nat nat_chk(Env e, Nat n) {
   if (n > NAT_IMM) {
@@ -535,7 +517,7 @@ static int f32_text(char* buf, double v, int d) {
       break;
     }
     char* up = strchr(buf, 'e') - 1;
-    if (d > 9 && *up != '9' && fabs(strtod(buf, NULL)) < fabs(v)
+    if (*up != '9' && fabs(strtod(buf, NULL)) < fabs(v)
       && (*up += 1, strtod(buf, NULL) == v)) {
       break;
     }
@@ -697,13 +679,12 @@ function die(m: string): never {
 // Tpl
 // ===
 
-function tpl_ops(pre: string, names: string, C: string, JS: string,
-  soft = false): Record<string, Intr> {
+function tpl_ops(pre: string, names: string, C: string, JS = C):
+  Record<string, Intr> {
   const out: Record<string, Intr> = {};
   for (const p of names.split(" ")) {
     const [k, o = k, jo = o] = p.split(":");
-    out[pre + k] = { C: C.replaceAll("$o", o), JS: JS.replaceAll("$o", jo),
-      soft };
+    out[pre + k] = { C: C.replaceAll("$o", o), JS: JS.replaceAll("$o", jo) };
   }
   return out;
 }
@@ -932,8 +913,12 @@ function intr_of(c: Carb, k: Name, js = false): Intr | undefined {
   const tld = c.book.tlds[k];
   const it = tld?.$ === "Def" && tld.i === undefined && tld.b
     ? OPERATIONS[op_name(k)] : undefined;
-  return it !== undefined && (js ? it.JS !== undefined : !it.soft
+  return it !== undefined && (js ? it.JS !== undefined : !intr_soft(it)
     && (it.C !== undefined || it.call === true)) ? it : undefined;
+}
+
+function intr_soft(it?: Intr): boolean {
+  return /f64_(num|of)\(/.test(String(it?.C));
 }
 
 // Call
@@ -1119,7 +1104,7 @@ function lay_box(lay: Lay): boolean {
 }
 
 function lay_w64(lay: Lay): boolean {
-  return lay.arms !== null && ["U64", "F64"].includes(lay.arms[0].k);
+  return lay.arms !== null && /^[UF]64$/.test(lay.arms[0].k);
 }
 
 function lay_arm(lay: Lay, k: Name): Arm {
@@ -1307,11 +1292,11 @@ export function io_type(book: Bend.Book): HTerm | null {
 }
 
 // A pure main prints through a descriptor of its type, a node per (type,
-// boxed?): 0 U32, 1 F32, 2 Nat, 3 Char (boxed?), 4 String, 5 Eql, 6 Array
-// (element, lgs), 7 Data (boxed?, arms; per arm name, cid, fields, bracket,
-// then an (offset, node) per field), 8 U64 and 9 F64 (boxed?, as Char).
-// Null for an IO main; an unprintable type (a
-// function, a Type, an erased or dependent field) refuses the build.
+// boxed?): 0 U32, 1 F32, 2 Nat, 3 Char, 4 String, 5 Eql, 6 Array (element,
+// lgs), 7 Data (boxed?, arms; per arm name, cid, fields, bracket, then an
+// (offset, node) per field), 8 U64, 9 F64 (as Char). Null for an IO main;
+// an unprintable type (a function, a Type, an erased or dependent field)
+// refuses the build.
 function show_main(book: Bend.Book): Show | null {
   const main = book.tlds["main"];
   if (main?.$ !== "Def" || (main.v === null && main.i === undefined)
@@ -2324,13 +2309,13 @@ function emit_native(fl: File, ck: Call, ers: HTerm[]): string {
   seg.fid = name;
   const dst = val_new(seg.ret.ks.map(() => name_local(fl, "v")), seg.ret);
   const it = tld.b ? OPERATIONS[op_name(ck.k)] : undefined;
-  if (it?.soft) {
+  if (intr_soft(it)) {
     file_push(fl, "#ifndef __METAL_VERSION__");
-    emit_put(fl, dst, intr_c(fl, it.C as string, ck.k, vals, seg.ret));
+    emit_put(fl, dst, intr_c(fl, it!.C as string, ck.k, vals, seg.ret));
     file_push(fl, "#else");
   }
   emit_body(fl, tld.h as HTerm, tld.T, ers, vals, dst);
-  if (it?.soft) {
+  if (intr_soft(it)) {
     file_push(fl, "#endif");
   }
   fl.spins.push({ fid: name, refs: seg.refs, text: [`${seg.lines.length < SPIN_FAR ? "INLINE" : "FAR"} Term ${name}(Env e, THR Term* o${
@@ -2366,7 +2351,7 @@ function emit_intr(fl: File, it: Intr, x: HTerm,
     return arr_op(fl, op, lay_el(fl.book, m.all[0]), args);
   }
   const lays = sig_def(fl, k).lays;
-  const vs = args.map((a, i) => lay_w64(lays[i]) ? val_to(fl, a, lays[i]) : a);
+  const vs = args.map((a, i) => val_to(fl, a, lays[i]));
   vs.forEach((v) => val_own(fl, v));
   if (Array.isArray(it.C)) {
     const as = vs.map((v) => emit_alias(fl, val_word(v), "a"));
@@ -2500,7 +2485,7 @@ function emit_unfold(fl: File, s: HTerm): HTerm | null {
   const m = term_spine(fl, s);
   const d = m.tld;
   if (m.t.$ !== "Ref" || d?.$ !== "Def" || d.h === undefined
-    || m.all.length !== d.n || d.b && OPERATIONS[op_name(m.t.k)]?.soft
+    || m.all.length !== d.n || d.b && intr_soft(OPERATIONS[op_name(m.t.k)])
     || intr_of(fl, m.t.k) !== undefined || !flat_of(m.t.k)) {
     return null;
   }
@@ -2521,7 +2506,7 @@ function emit_unfold(fl: File, s: HTerm): HTerm | null {
       }
       const { arms, end } = mat_arms(w);
       const arm = arms.find(([k]) => k === c.k);
-      b = arm === undefined ? end : arm[1];
+      b = arm?.[1] ?? end;
       xs = arm === undefined ? xs
         : [...ctr_flds(fl.book, c.k, c.x), ...xs.slice(1)];
       hit = true;
@@ -5949,12 +5934,8 @@ static void show_val(Env e, u32 d, const Term* w, char chain) {
     case 9: {
       const Term* v = D[d + 1] != 0 ? e.mem + term_peek(e, w[0]) : w;
       u64 x = v[1] << 32 | (u32)v[0];
-      if (D[d] == 8) {
-        printf("%llu", (unsigned long long)x);
-      } else {
-        show_f32(f64_num(x), 17);
-      }
-      fputs(D[d] == 8 ? "u64" : "f64", stdout);
+      D[d] == 8 ? (void)printf("%lluu64", (unsigned long long)x)
+        : (show_f32(f64_num(x), 17), (void)fputs("f64", stdout));
       break;
     }
     case 3:
