@@ -232,7 +232,7 @@ const OPERATIONS: Record<string, Intr> = Object.setPrototypeOf({
     JS: "($1 ? $0 / $1 : 0n)",
   },
   ...tpl_ops("u64_", "mod", "($1 ? $0 % $1 : $0)", "($1 ? $0 % $1 : $0)"),
-  ...tpl_ops("u64_", "from_nat", "$0", "$0"),
+  ...tpl_ops("u64_", "from_nat to_nat", "$0", "$0"),
   u64_clz: {
     C:  "u64_clz($0)",
     JS: "(64 - $0.toString(2).length + !$0)",

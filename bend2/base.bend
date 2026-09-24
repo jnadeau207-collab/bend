@@ -1797,6 +1797,9 @@ def U64.from_nat(n: Nat) -> U64:
 def U32.to_u64(a: U32) -> U64:
   U64{a, 0}
 
+def U64.to_nat(a: U64) -> Nat:
+  Word.to_nat(64n, U64.word(a))
+
 def U64.to_u32(a: U64) -> U32:
   U64{l, h} = a
   l
@@ -2418,40 +2421,16 @@ def Nat.show(n: Nat) -> String:
   +m = n
   Nat.show.fin(m, SNil{}, Nat.show.put(Nat.divmod(m, 10n)))
 
-law Nat.read.go:
-  for s   : String
-  for +acc : Nat
-  Maybe<&2, Nat>
-
-def Nat.read.max() -> Nat:
-  Nat.mul(U32.to_nat(16777215), U32.to_nat(16777217))
-
-def Nat.read.fit(acc: Nat, qr: Nat & Nat) -> Bool:
-  (q, r) = qr
-  Bool.not(Nat.is_lt(q, acc))
-
-def Nat.read.if(t: String, acc: Nat, d: U32, ok: Bool) -> Maybe<&2, Nat>:
-  match ok:
-    case True{}:
-      Nat.read.go(t, Nat.add(Nat.mul(acc, 10n), U32.to_nat(d)))
-    case False{}:
+def Nat.read.of(m: Maybe<&2, U64>) -> Maybe<&2, Nat>:
+  match m:
+    case Some{+v}:
+      Bool.pick(Maybe<&2, Nat>, U64.is_lt(v, 281474976710656u64),
+        Some{U64.to_nat(v)}, None{})
+    case None{}:
       None{}
-
-def Nat.read.go(s, acc):
-  match s:
-    case SNil{}:
-      Some{acc}
-    case SCon{Chr{x}, t}:
-      +d = U32.sub(x, 48)
-      Nat.read.if(t, acc, d, Bool.and(U32.is_lt(d, 10), Nat.read.fit(acc,
-        Nat.divmod(Nat.sub(Nat.read.max(), U32.to_nat(d)), 10n))))
 
 def Nat.read(s: String) -> Maybe<&2, Nat>:
-  match s:
-    case SNil{}:
-      None{}
-    case SCon{h, t}:
-      Nat.read.go(SCon{h, t}, 0n)
+  Nat.read.of(U64.read(s))
 
 law U64.show.go:
   for f   : Nat
