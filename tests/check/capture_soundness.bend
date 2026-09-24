@@ -4,7 +4,7 @@
 # with expected b, observed a -- a key collision would accept it and
 # close main : Empty.
 # ported from bend3: the annotation wears the brace Ann form, riding
-# a let binding (a bare beta-redex is refused by infer-app)
+# a let binding (a bare beta-redex is its body: term_higher steps it)
 type Empty6 is Data:
 
 type Unit6 is Data:

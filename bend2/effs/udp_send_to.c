@@ -13,7 +13,7 @@ static Term udp_send_to_more(Env e, IoWork* w) {
   }
   io_sys_end(w, n);
   if (w->code == EAGAIN) {
-    return io_wait_on(w, fd, POLLOUT, udp_send_to_more);
+    return io_wait_on(w, fd, POLLOUT, 0, udp_send_to_more);
   }
   Term r = w->code != 0 ? io_fail(e, w->code, NULL)
     : io_done(e, term_pak(CID_UNIT, 0));

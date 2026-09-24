@@ -1,9 +1,8 @@
 # a higher-order map over an open list, its function a template (a
 # closure is linear, a ~ argument is not): the two known cells
 # unfold, dbl runs on the literal and sticks on x inside its cell,
-# and the tail sticks on xs with dbl still in the call. The call
-# shows the template instance name (map~0), with its argument.
-# a spelling to review: Agda shows map dbl xs.
+# and the tail sticks on xs with dbl still in the call, shown by its
+# template name (an instance is its template to the checker).
 import Base
 
 law dbl:
@@ -30,4 +29,4 @@ law main:
 def main():
   x => xs => map(~dbl, 1n <> x <> xs)
 
-#|x => xs => 2n <> dbl(x) <> map~0(dbl, xs)
+#|x => xs => 2n <> dbl(x) <> map(dbl, xs)

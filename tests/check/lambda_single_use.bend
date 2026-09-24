@@ -1,6 +1,6 @@
 # a let-applied lambda that reduces to a lambda cannot be used twice:
 # k binds Lone, and no live binding contracts (the redex head rides a
-# let binding: a bare beta-redex is refused by infer-app).
+# let binding: a bare beta-redex is its body, stepped by term_higher).
 # ported from bend3: the annotation wears the brace Ann form
 import Base
 

@@ -1,7 +1,7 @@
 # comp pin (page_comp_param_match): bend3's template body matching on
 # its ~ param died at spec mint with the cannot-be-matched-on page.
-# bend has no ~ params to mint; the ~ binder pins bend's own parse
-# refusal before any match is reached.
+# bend's ~ law t checks once with f an opaque constant, and a match on
+# it is a match on no parameter: refused at t, before any instance.
 import Base
 
 law t:
@@ -20,10 +20,10 @@ def main():
   t(x => (x + 1 : U32))
 
 #|Error:
-#|- expected : a name
-#|- observed : '~'
-#|Location:
-#|7 | law t:
-#|8>|   for ~f: U32 -> U32
-#|9 |   U32
+#|- expected : an annotated term (cannot infer)
+#|- observed : \{U32: (w => 0)}
+#|Location: t
+#|12 |   match f:
+#|13>|     case U32{w}:
+#|14 |       0
 #|exit 1

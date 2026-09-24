@@ -11,7 +11,7 @@ def main():
   m[70000]
 
 #|Error:
-#|- expected : 'def', 'type' or 'law'
+#|- expected : a term
 #|- observed : ':'
 #|Location:
 #| 9 | def main():

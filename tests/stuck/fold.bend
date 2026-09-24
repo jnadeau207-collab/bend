@@ -1,7 +1,7 @@
 # a fold with a ref as its template function: foldr(~add, 0n,
 # Con{2n, Con{x, xs}}) unfolds two cells, the first add runs on 2n
 # and the second sticks on x, over the fold stuck on xs, shown by
-# its template instance name (foldr~0), with its argument.
+# its template name (an instance is its template to the checker).
 import Base
 
 law add:
@@ -29,4 +29,4 @@ law main:
 def main():
   x => xs => foldr(~add, 0n, 2n <> x <> xs)
 
-#|x => xs => 2n+add(x, foldr~0(add, 0n, xs))
+#|x => xs => 2n+add(x, foldr(add, 0n, xs))

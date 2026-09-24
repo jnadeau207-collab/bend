@@ -1,8 +1,7 @@
 # comp pin (check_list_map_conversion): bend3 minted a comp-lambda spec
 # INSIDE a type (List.map over a ~ literal ran during conversion, refl
-# closed it). bend has list literals but no comp surface and no
-# List.map (ruled out: not checkable even once Data lands); the ~
-# binder pins bend's own parse refusal.
+# closed it). bend's ~ law lmap checks once, f opaque; the pin moves to
+# thm's bend3 `=` equation, which bend spells `==`.
 import Base
 
 law LL.length:
@@ -42,10 +41,10 @@ def main():
   2n
 
 #|Error:
-#|- expected : a name
-#|- observed : '~'
+#|- expected : ':'
+#|- observed : '='
 #|Location:
-#|20 | law lmap:
-#|21>|   for ~f: U32 -> U32
-#|22 |   for xs: List<U32>
+#|31 | law thm:
+#|32>|   {LL.length(lmap(x => (x + 1 : U32), [1, 2])) = 2n : Nat}
+#|33 |
 #|exit 1

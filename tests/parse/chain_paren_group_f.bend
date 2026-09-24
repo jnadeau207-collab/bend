@@ -4,10 +4,10 @@
 import Base
 
 def main(a: U32, b: U32, c: Nat) -> U32 & Nat:
-  ((a + b : U32), c + 1n)
+  ((a + b : U32), (c + 1n : Nat))
 
 def g(a: U32, b: U32, n: Nat) -> Nat:
-  U32.to_nat((a * b : U32)) + n
+  (U32.to_nat((a * b : U32)) + n : Nat)
 
 def h(a: U32, b: U32, c: U32) -> List<U32>:
   [(a + b : U32), (c << 1n : U32)]

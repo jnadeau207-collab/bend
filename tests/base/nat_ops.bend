@@ -1,4 +1,4 @@
-# unary Nat at runtime: add/mul/sub (truncating) and the u32 bridge
+# unary Nat at runtime: add/mul/sub (truncating)/min/max and the u32 bridge
 # ported from bend3: Nat.to_u32/from_u32 become U32.from_nat/U32.to_nat
 import Base
 
@@ -22,7 +22,11 @@ def main.out():
   b2 = bu(U32.is_eq(U32.from_nat(Nat.sub(5n, 2n)), 3))
   b3 = bu(U32.is_eq(U32.from_nat(Nat.sub(2n, 5n)), 0))
   b4 = bu(U32.is_eq(U32.from_nat(U32.to_nat(9)), 9))
-  U32.add(U32.add(U32.add(U32.add(b0, b1), b2), b3), b4)
+  b5 = bu(U32.is_eq(U32.from_nat(Nat.min(7n, 3n)), 3))
+  b6 = bu(U32.is_eq(U32.from_nat(Nat.max(7n, 3n)), 7))
+  b7 = bu(U32.is_eq(U32.from_nat(Nat.max(3n, 0n)), 3))
+  b8 = bu(U32.is_eq(U32.from_nat(Nat.max(300n, 300n)), 300))
+  U32.add(U32.add(U32.add(U32.add(U32.add(U32.add(U32.add(U32.add(b0, b1), b2), b3), b4), b5), b6), b7), b8)
 
 law main:
   IO(Unit)
@@ -30,4 +34,4 @@ law main:
 def main():
   IO.print(U32.show(main.out()))
 
-#|5
+#|9

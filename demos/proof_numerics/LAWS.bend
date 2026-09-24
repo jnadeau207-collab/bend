@@ -37,4 +37,4 @@ law divmod_ok:
   for +m: Nat
   exs  q: Nat
   exs  r: Nat
-  {(q, r) == Num.divmod(n, 1n+m) : Nat & Nat} & {True{} == (r < 1n+m) : Bool} & {n == Num.add(r, Num.mul(q, 1n+m)) : Nat}
+  {(q, r) == Num.divmod(n, 1n+m) : Nat & Nat} & {True{} == (r < 1n+m : Nat) : Bool} & {n == Num.add(r, Num.mul(q, 1n+m)) : Nat}

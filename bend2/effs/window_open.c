@@ -23,6 +23,10 @@
   return YES;
 }
 
+- (BOOL)acceptsFirstMouse:(NSEvent*)ev {
+  return YES;
+}
+
 - (BOOL)isFlipped {
   return YES;
 }

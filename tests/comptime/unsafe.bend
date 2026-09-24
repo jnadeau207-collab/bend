@@ -1,5 +1,6 @@
-# an @unsafe template: its instance carries the mark (the self-call
-# skips descent; --check counts it as unsafe, see reg_import_walls)
+# an @unsafe template: its generic check and its instance carry the mark
+# (the self-call skips descent), and the verdict names loop and main, the
+# instance being loop's
 import Base
 
 @unsafe

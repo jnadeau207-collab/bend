@@ -1,8 +1,8 @@
 # comp-splice pin (spec_comp_let_split): bend3's let-bound generic
-# template call whose spec split a computed match. bend has no comp
-# surface (and its computed matches never specialize, by design); the
-# ~ binder pins bend's own parse refusal. (bend3's number switch in
-# the predicate respells through U32.is_gt.)
+# template call whose spec split a computed match. bend's ~ law keep
+# puts its ~p after a plain clause, which is refused where it is
+# written: only leading clauses take ~. (bend3's number switch in the
+# predicate respells through U32.is_gt.)
 import Base
 
 type B2 is Data:
@@ -59,7 +59,7 @@ def main():
   total(keep(U32, x => b2(x), C{1, C{2, C{3, N{}}}}))
 
 #|Error:
-#|- expected : a name
+#|- expected : a plain clause (only leading clauses take ~)
 #|- observed : '~'
 #|Location:
 #|17 |   for -A: Type

@@ -23,7 +23,7 @@
     let p = counter(page).get().first()
     if p > 1 {
       set text(size: 8pt)
-      if calc.even(p) [#p #h(1fr) Victor Taelin] else [BendRT: A Parallel Runtime for CPUs and GPUs #h(1fr) #p]
+      if calc.even(p) [#p #h(1fr) Victor Taelin et al.] else [BendRT: A Parallel Runtime for CPUs and GPUs #h(1fr) #p]
     }
   },
 )
@@ -75,7 +75,9 @@
   v(10pt)
   text(size: 17.3pt, weight: "bold")[BendRT: A Parallel Runtime for CPUs and GPUs]
   v(2pt)
-  text(size: 11pt)[Victor Taelin]
+  text(size: 11pt)[Victor Taelin, Lorenzo W Battistela, Paulo J Cavalcanti]
+  linebreak()
+  text(size: 11pt)[Nicolas Abril, Vitor Chiarelli Neves, Vanessa Ostroski]
   linebreak()
   text(size: 10pt)[Higher Order Company]
   linebreak()

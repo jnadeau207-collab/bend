@@ -1,6 +1,6 @@
 # a caller's local inside a ~ argument (x here, g's parameter) makes the
-# argument open: the call stays a plain call of the template's name, and
-# the checker refuses that name at the call (pass x at run time instead)
+# argument open: a ~ argument checks in the empty context, where x is
+# unbound, and the checker refuses it there (pass x at run time instead)
 import Base
 
 def app(~f: Nat -> Nat, x: Nat) -> Nat:
@@ -13,7 +13,7 @@ def main() -> Nat:
   g(3n)
 
 #|Error:
-#|- expected : a template applied to closed ~ arguments (a def parameter is not comptime)
+#|- expected : a template applied to closed ~ arguments (x is a variable here, not comptime: pass it at run time)
 #|- observed : app
 #|Context:
 #|- x : Nat

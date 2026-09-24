@@ -1,8 +1,9 @@
 # comp-splice pin (spec_mint_count): bend3's comp-lambda mint-count cost
 # guard (a recursive template's knot tied structurally, counted under
-# --stats). bend has neither comp mints nor a stats surface; the ~
-# binder pins bend's own parse refusal. (bend3's number switch on the
-# counter respells as base Nat recursion.)
+# --stats). bend has no stats surface; a ~ clause after a plain one is
+# refused where it is written: only leading clauses take ~, so g heads
+# no template. (bend3's number switch on the counter respells as base
+# Nat recursion.)
 import Base
 
 law each:
@@ -32,10 +33,10 @@ def main():
   u0(1)
 
 #|Error:
-#|- expected : a name
+#|- expected : a plain clause (only leading clauses take ~)
 #|- observed : '~'
 #|Location:
-#| 9 |   for n: Nat
-#|10>|   for ~g: U32 -> U32
-#|11 |   for x: U32
+#|10 |   for n: Nat
+#|11>|   for ~g: U32 -> U32
+#|12 |   for x: U32
 #|exit 1

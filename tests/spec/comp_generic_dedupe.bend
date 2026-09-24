@@ -1,7 +1,8 @@
 # comp-splice pin (spec_comp_generic_dedupe): bend3's generic battery --
-# capture through a generic template, two type-pair instantiations,
-# per-site minting. bend has no comp surface; def<A,B> respells as
-# erased -A/-B binders and the ~ binder pins bend's own parse refusal.
+# capture through a generic template, two type-pair instantiations, per-
+# site minting. def<A,B> respells as erased -A/-B binders, and a ~
+# clause after a plain one is refused where it is written: only leading
+# clauses take ~, so f heads no template.
 import Base
 
 type L<-A: Type> is Type:
@@ -48,10 +49,10 @@ def main():
   total(shift(10, C{1, C{2, N{}}}))
 
 #|Error:
-#|- expected : a name
+#|- expected : a plain clause (only leading clauses take ~)
 #|- observed : '~'
 #|Location:
-#|13 |   for -B: Type
-#|14>|   for ~f: A -> B
-#|15 |   for xs: L<A>
+#|14 |   for -B: Type
+#|15>|   for ~f: A -> B
+#|16 |   for xs: L<A>
 #|exit 1

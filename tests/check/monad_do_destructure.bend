@@ -20,7 +20,7 @@ def main():
 
 #|Error:
 #|- expected : a pattern (a binder or a constructor)
-#|- observed : Result.bind(U32, Pair(U32, U32), U32, Done{(1, 2)}, p => (a, b))
+#|- observed : Result.bind(&1, &1, U32, Pair(U32, U32), U32, Done{(1, 2)}, p => {(a, b) : Result<&1, &1, U32, U32>})
 #|Location:
 #|10 |   do Result<U32, U32>:
 #|11>|     p : U32 & U32 <- Done{(1, 2)}

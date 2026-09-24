@@ -12,7 +12,7 @@ def main():
   m[0]
 
 #|Error:
-#|- expected : 'def', 'type' or 'law'
+#|- expected : a term
 #|- observed : ':'
 #|Location:
 #|10 | def main():

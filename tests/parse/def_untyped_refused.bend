@@ -5,7 +5,7 @@ def add(x, y):
   x
 
 #|Error:
-#|- expected : '->'
+#|- expected : '->' (a def with no return type fills a law; no law named add is in scope)
 #|- observed : ':'
 #|Location:
 #|3 | # def spelled with bare names is refused at the missing arrow.

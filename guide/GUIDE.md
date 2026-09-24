@@ -115,7 +115,9 @@ keep Bend's proofs sound, as a function that never returns could otherwise prove
 anything. A loop bounded by the outside world, like a server's, counts down a
 `Nat` fuel argument instead, and two mutually recursive functions become one def
 with an extra argument selecting which to run. A `def` marked `@unsafe` recurses
-freely, but falls outside Bend's proof guarantees.
+freely and may call a def written below it, but falls outside Bend's proof
+guarantees. Types are not code, so the order binds only defs: two datatypes, or
+a datatype and a type-level def, may name each other in any order.
 
 A `match` inspects a parameter or a variable bound by a pattern, never a
 computed value: `match sum(xs, 0):` is rejected. Scrutinees follow binder order,
@@ -160,7 +162,9 @@ the GPU. The heap is fully unified, so, if your chip
 has unified memory (as in Apple M-series processors), moving data from the CPU
 to the GPU is a zero-cost operation. The GPU shines on uniform numeric work like
 mandelbrot or nbody; divergent work like n-queens stays faster on the CPU. A
-machine without a GPU runs `!` on the CPU (still in parallel).
+machine without a GPU runs `!` on the CPU (still in parallel). What the lanes
+share also sets the speed: a `+` value read by every lane costs an atomic per
+read. Read `bend guide shaders` before you write a parallel app.
 
 The JavaScript target ignores all that and just runs sequentially.
 
@@ -244,8 +248,10 @@ parameter accepts both: `length(&1, U32 -> U32, fs)` counts a list of closures
 just as well. A bare `a` in a parameter list is short for `-a: Quant`. Base
 declares `type List<a, -A: Kind(a)> is Kind(a)`, making a list exactly as
 reusable as its elements: `List<U32>` is short for `List<&1, U32>`, and
-`+List<U32>` for `List<&2, U32>`. A type holding two element types combines
-their quantities with `a <&> b`, the smaller of the two.
+`+List<U32>` for `List<&2, U32>`. The short form needs the type declared above
+it: a type named before its declaration spells every parameter, quantities
+included. A type holding two element types combines their quantities with
+`a <&> b`, the smaller of the two.
 
 ### Templates
 
@@ -315,6 +321,7 @@ the AI does not touch it. `PROOF.bend` imports `LAWS.bend` and proves each law
 with a def of the same name (`law sorted` is proven by `def Laws.sorted`): the
 AI writes it, along with the code. `bend PROOF.bend` is the gate: it fails while
 any law is open or false, and prints "All terms check." once every law holds.
+bend refuses a `PROOF.bend` that sits beside a `LAWS.bend` without importing it.
 
 Bend has no tactics: a proposition is a type, and a proof is a def of that type.
 `{a == b : T}` is an equality; `{==}` proves it when both sides compute to the
@@ -374,7 +381,9 @@ underscores. You can add your own effects the same way. Only the event loop runs
 them, so proofs, termination and the GPU never touch host code. In the other
 direction, a JS file may `import Game from "./game.bend"` (with `bend2/main.ts`
 preloaded) and call every non-IO def, with constructors as `{$: "Name", field:
-value}` and `Nat` as `BigInt`.
+value}` and `Nat` as `BigInt`. A value crosses without a copy: an `Array`
+argument is the caller's own array, updated in place, so copy it first if you
+keep it.
 
 ### Monads
 
@@ -481,6 +490,17 @@ filled in another as `def M.name(..)`, so a proof can ship separately from its
 claim. `import 0x<hash>/main.bend as P` imports a package by content hash,
 fetched from the hub and checked against it; `bend main.bend --publish` uploads
 a file with everything it imports and prints that line.
+`import <name>@<version>/main.bend as P` is the same package by the name
+its author gave it on the hub, with `bend main.bend --publish
+<name>@<version>` after `bend login`.
+
+A publish is public and permanent, under BendHub's terms
+(https://bend-lang.com/bender/terms#s18). Put a `LICENSE` file
+next to your entry file, ideally opening with a line like
+`SPDX-License-Identifier: MIT`; `--publish` takes every file named exactly
+`LICENSE` beside a published file, and a package without one is MIT-0. You are
+responsible for what you publish, so pick the license it may carry. Adding a
+`LICENSE` changes a package's hash: publish it as a new version.
 
 ## Tooling
 
@@ -493,7 +513,8 @@ bend file.bend -o file.c  # emit the C source instead
 bend file.bend -o file.js # emit the JS source instead
 bend page.html -o dist    # bundle a web page that imports .bend files
 ./file --threads 8        # run a native binary on 8 CPU threads
-./file --gpu 4GB          # enables the GPU, with max 4GB memory
+./file --gpu off          # run ! calls on the CPU (the GPU is on by default)
+./file --gpu 4GB          # cap the GPU's heap at 4GB
 ```
 
 A `main` that returns `IO` runs compiled; one that returns a value is normalized
@@ -525,6 +546,7 @@ law f:                                   # a claim, proven by def f
   exs z: C                               # a witness the proof must return
   T                                      # the claim
 @unsafe def f(x: A) -> T:                # skips the termination check
+def f?(x: A) -> T:                       # the same, as a sugar
 def e(x: A) -> IO(B):                    # a foreign effect
   import "./e.c"
   import "./e.js"
@@ -602,3 +624,14 @@ recursion must terminate. `bend2/bend.lean` mechanizes this, though it lags
 - `demos/`: complete programs, including the game and its proof from the video.
 - `bend2/base.bend`: the Base library, also printed by `bend base`.
 - `paper/BendTT.pdf` and `paper/BendRT.pdf`: the type theory and the runtime.
+
+## Extra
+
+`bend guide shaders` prints "Shaders in Bend", a tutorial written by AIs for
+AIs on how to write efficient shaders in Bend. It distills what building
+`demos/app_slash_boss_3d` (120 FPS in pure Bend) taught. Read it before you
+write a graphical or parallel app in Bend.
+
+`bend guide effects` prints "Effects in Bend", an AI-written note (to be
+revised by a human) on the C and JS side of custom effects. Read it before
+you write one.

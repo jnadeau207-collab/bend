@@ -1,7 +1,7 @@
 # comp-splice pin (spec_comp_late_param): bend3 accepted a comp param
-# declared AFTER the matched column (the commuting application). bend
-# has no comp surface; the ~ in the second binder position pins bend's
-# own parse refusal at that spot.
+# declared AFTER the matched column (the commuting application). a ~
+# clause after a plain one is refused where it is written: only leading
+# clauses take ~, so f heads no template.
 import Base
 
 type L is Data:
@@ -38,7 +38,7 @@ def main():
   total(each(C{1, C{2, C{3, N{}}}}, x => (x * 2 : U32)))
 
 #|Error:
-#|- expected : a name
+#|- expected : a plain clause (only leading clauses take ~)
 #|- observed : '~'
 #|Location:
 #|12 |   for xs: L

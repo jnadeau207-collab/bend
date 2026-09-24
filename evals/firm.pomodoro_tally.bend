@@ -42,7 +42,7 @@ def tally.day(items: +List<Interval>, s: Stats) -> Stats:
     case Nil{}:
       s
     case Work{+m} <> t:
-      tally.day(t, tally.work(m, s, (m < 25n)))
+      tally.day(t, tally.work(m, s, (m < 25n : Nat)))
     case Rest{m} <> t:
       tally.day(t, tally.rest(m, s))
     case Pause{m} <> t:
@@ -74,7 +74,7 @@ def pomodoros.day(items: +List<Interval>) -> +List<Nat>:
     case Nil{}:
       Nil{}
     case Work{+m} <> t:
-      keep(m, pomodoros.day(t), (m < 25n))
+      keep(m, pomodoros.day(t), (m < 25n : Nat))
     case Rest{m} <> t:
       pomodoros.day(t)
     case Pause{m} <> t:
@@ -142,7 +142,7 @@ def day_done(items: +List<Interval>, d: Nat, -f: Nat, -r: Nat) -> {Stats.done(ta
       %add_zero(d) : {_ == Nat.add(d, 0n) : Nat}
       {==}
     case Work{m} <> +t:
-      day_done.work(t, m, d, f, r, day_done(t), (m < 25n))
+      day_done.work(t, m, d, f, r, day_done(t), (m < 25n : Nat))
     case Rest{m} <> t:
       day_done(t, d, f, Nat.add(m, r))
     case Pause{m} <> t:

@@ -1,6 +1,7 @@
-# a literal lambda application is a beta-redex: infer-app takes the
-# one beta step, and the substituted body, a constructor, cannot be
-# inferred, so the redex is refused as any bare constructor is.
+# a literal lambda application is a beta-redex: term_higher takes its
+# beta steps as it builds it, and the substituted body, a constructor,
+# checks against the goal as any constructor does. in an infer position
+# (a let's value) the constructor it leaves cannot infer.
 import Base
 
 law main:
@@ -8,11 +9,4 @@ law main:
 
 def main(): (x => x)(3)
 
-#|Error:
-#|- expected : an annotated term (cannot infer)
-#|- observed : 3
-#|Location: main
-#| 8 |
-#| 9>| def main(): (x => x)(3)
-#|10 |
-#|exit 1
+#|3

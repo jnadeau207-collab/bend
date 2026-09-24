@@ -11,6 +11,6 @@ def g(xs: List<List<U32>>, a: U32, b: U32) -> Bool:
   (a > b : U32)
 
 def main(+n: Nat, p: Nat) -> Nat:
-  1n+p + n
+  1n+(p + n : Nat)
 
 #|n => p => 1n+Nat.add(p, n)

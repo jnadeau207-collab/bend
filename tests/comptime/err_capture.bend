@@ -1,6 +1,6 @@
 # the a2 shape: a caller's local x inside a ~ argument while a def x
-# exists; the argument is open, so the call stays a plain call of the
-# template's name and the checker refuses it: no global capture
+# exists; the argument checks in the empty context, where x is unbound,
+# so the checker refuses it: no global capture
 import Base
 
 def x() -> Nat:
@@ -16,7 +16,7 @@ def main() -> Nat:
   g(3n)
 
 #|Error:
-#|- expected : a template applied to closed ~ arguments (a def parameter is not comptime)
+#|- expected : a template applied to closed ~ arguments (x is a variable here, not comptime: pass it at run time)
 #|- observed : app
 #|Context:
 #|- x : Nat

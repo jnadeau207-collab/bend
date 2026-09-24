@@ -17,7 +17,7 @@ def main():
   0
 
 #|Error:
-#|- expected : 'def', 'type' or 'law'
+#|- expected : a term
 #|- observed : ':'
 #|Location:
 #|14 | def main():

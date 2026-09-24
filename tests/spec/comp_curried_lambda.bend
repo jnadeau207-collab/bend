@@ -1,6 +1,7 @@
-# comp-splice pin (spec_comp_curried_lambda): bend3's curried comp arrows
-# took x => y => chains as spliced arguments. bend has no comp surface;
-# the ~ binder pins bend's own parse refusal.
+# comp-splice pin (spec_comp_curried_lambda): bend3's curried comp
+# arrows took x => y => chains as spliced arguments. bend's ~ law app2
+# takes the chain the same way (its fill checks once, f opaque); the pin
+# moves to helper, whose x is spent twice.
 import Base
 
 law app2:
@@ -26,10 +27,10 @@ def main():
   (app2(x => y => (x * 10 + y : U32), 3, 4) + helper(2) : U32)
 
 #|Error:
-#|- expected : a name
-#|- observed : '~'
-#|Location:
-#|6 | law app2:
-#|7>|   for ~f: U32 -> U32 -> U32
-#|8 |   for a: U32
+#|- expected : x
+#|- observed : x (consumed more than once)
+#|Location: helper
+#|19 |
+#|20>| def helper(x):
+#|21 |   (x * x : U32)
 #|exit 1

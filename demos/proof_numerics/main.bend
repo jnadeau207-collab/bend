@@ -32,7 +32,7 @@ def divmod.wrap(b: Bool, q: Nat, r: Nat) -> Nat & Nat:
 def divmod.step(m: Nat, qr: Nat & Nat) -> Nat & Nat:
   (q, r0) = qr
   +r = r0
-  divmod.wrap((r < m), q, r)
+  divmod.wrap((r < m : Nat), q, r)
 
 # divides n by 1n+m in n steps
 def divmod.go(n: Nat, +m: Nat) -> Nat & Nat:

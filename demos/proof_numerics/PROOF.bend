@@ -103,7 +103,7 @@ def BD(b: Bool, t: Type, f: Type) -> Type:
       f
 
 # a remainder at most m that is not below m is m
-def le_eq(r: Nat, m: Nat, le: {True{} == (r < 1n+m) : Bool}, e: {False{} == (r < m) : Bool}) -> {r == m : Nat}:
+def le_eq(r: Nat, m: Nat, le: {True{} == (r < 1n+m : Nat) : Bool}, e: {False{} == (r < m : Nat) : Bool}) -> {r == m : Nat}:
   match r m:
     case 0n 0n:
       {==}
@@ -122,17 +122,17 @@ def le_eq(r: Nat, m: Nat, le: {True{} == (r < 1n+m) : Bool}, e: {False{} == (r <
 
 # Ok(n, m, qr): qr is Euclid's quotient and remainder of n by 1n+m
 def Ok(n: Nat, m: Nat, qr: Nat & Nat) -> Type:
-  &q: Nat -> &r: Nat -> {(q, r) == qr : Nat & Nat} & {True{} == (r < 1n+m) : Bool} & {n == Num.add(r, Num.mul(q, 1n+m)) : Nat}
+  &q: Nat -> &r: Nat -> {(q, r) == qr : Nat & Nat} & {True{} == (r < 1n+m : Nat) : Bool} & {n == Num.add(r, Num.mul(q, 1n+m)) : Nat}
 
 # the wrap arm: r has reached m, so 1n+q and 0n rebuild 1n+p
-def wrap_eq(-p: Nat, m: Nat, -q: Nat, r: Nat, le: {True{} == (r < 1n+m) : Bool}, e: {False{} == (r < m) : Bool}, eq: {p == Num.add(r, Num.mul(q, 1n+m)) : Nat})
+def wrap_eq(-p: Nat, m: Nat, -q: Nat, r: Nat, le: {True{} == (r < 1n+m : Nat) : Bool}, e: {False{} == (r < m : Nat) : Bool}, eq: {p == Num.add(r, Num.mul(q, 1n+m)) : Nat})
   -> {1n+p == Num.add(0n, Num.mul(1n+q, 1n+m)) : Nat}:
   %le_eq(r, m, le, e) : {1n+p == 1n+Num.add(_, Num.mul(q, 1n+m)) : Nat}
   %eq : {1n+p == 1n+_ : Nat}
   {==}
 
 # the step keeps Ok, decided on the verdict b of r < m
-def wrap_ok(-p: Nat, m: Nat, q: Nat, +r: Nat, le: {True{} == (r < 1n+m) : Bool}, eq: {p == Num.add(r, Num.mul(q, 1n+m)) : Nat}, b: Bool, e: {b == (r < m) : Bool})
+def wrap_ok(-p: Nat, m: Nat, q: Nat, +r: Nat, le: {True{} == (r < 1n+m : Nat) : Bool}, eq: {p == Num.add(r, Num.mul(q, 1n+m)) : Nat}, b: Bool, e: {b == (r < m : Nat) : Bool})
   -> Ok(1n+p, m, Num.divmod.wrap(b, q, r)):
   match b:
     case True{}:
@@ -145,7 +145,7 @@ def step_ok(-p: Nat, +m: Nat, w: Ok(p, m, Num.divmod.go(p, m))) -> Ok(1n+p, m, N
   (q, r0, dq, le, eq) = w
   +r = r0
   %dq : Ok(1n+p, m, Num.divmod.step(m, _))
-  wrap_ok(p, m, q, r, le, eq, (r < m), {==})
+  wrap_ok(p, m, q, r, le, eq, (r < m : Nat), {==})
 
 def Laws.divmod_ok(n, m):
   match n:

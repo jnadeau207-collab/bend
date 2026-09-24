@@ -32,8 +32,8 @@ Term tcp_connect_run(Env e, Term* f, IoWork* w) {
   }
   w->made = fd;
   io_sys_end(w, fd < 0 ? fd : connect(fd, (struct sockaddr*)&at, sizeof(at)));
-  return w->code == EINPROGRESS ? io_wait_on(w, fd, POLLOUT, tcp_connect_more)
-    : tcp_connect_more(e, w);
+  return w->code == EINPROGRESS
+    ? io_wait_on(w, fd, POLLOUT, 0, tcp_connect_more) : tcp_connect_more(e, w);
 }
 
 static void __attribute__((constructor)) tcp_connect_use(void) {

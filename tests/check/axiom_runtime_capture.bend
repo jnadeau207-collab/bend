@@ -1,8 +1,9 @@
 # comp pin (check_axiom_runtime_capture): bend3 smuggled an axiom into
-# runtime through a comp-lambda capture and died at erasure. bend has
-# no comp surface to open that door -- the ~ binder pins bend's own
-# parse refusal (the runtime-axiom wall itself is pinned by
-# compile_axiom_runtime).
+# runtime through a comp-lambda capture and died at erasure. bend's ~
+# law tpl checks once, f an opaque constant; the ~ argument checks dead,
+# where the axiom is a fine claim, and the instance tpl~0, tpl's body at
+# the lambda, uses it live and is refused there. (the runtime-axiom wall
+# itself is pinned by compile_axiom_runtime.)
 import Base
 
 law magic:
@@ -23,10 +24,12 @@ def main():
   tpl(y => (y + magic : U32), 1)
 
 #|Error:
-#|- expected : a name
-#|- observed : '~'
-#|Location:
-#|11 | law tpl:
-#|12>|   for ~f: U32 -> U32
-#|13 |   for x: U32
+#|- expected : a filled definition (an unfilled law is a dead claim: live code cannot use it)
+#|- observed : magic
+#|Context:
+#|- x : U32
+#|Location: tpl~0
+#|23 | def main():
+#|24>|   tpl(y => (y + magic : U32), 1)
+#|25 |
 #|exit 1

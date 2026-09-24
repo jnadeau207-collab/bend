@@ -14,4 +14,5 @@ def far.make(depth):
   import "./far_types.c"
   import "./far_types.js"
 
-#|All terms check.
+#|All terms check, but 1 def relies on unsafe or foreign code:
+#|- far.make

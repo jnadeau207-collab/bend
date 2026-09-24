@@ -2131,9 +2131,9 @@ type Wave is Data:
   Wave{kind: U32, ch: U32, rate: U32, bits: U32}
 
 def Synth.noise(+i: U32) -> F32:
-  +a = (U32.xor(i, (i >> 16n)) * 2146121005 : U32)
-  +b = (U32.xor(a, (a >> 15n)) * 2221713035 : U32)
-  (U32.to_f32((U32.xor(b, (b >> 16n)) .&. 65535 : U32)) / 32767.5 - 1.0 : F32)
+  +a = (U32.xor(i, (i >> 16n : U32)) * 2146121005 : U32)
+  +b = (U32.xor(a, (a >> 15n : U32)) * 2221713035 : U32)
+  (U32.to_f32((U32.xor(b, (b >> 16n : U32)) .&. 65535 : U32)) / 32767.5 - 1.0 : F32)
 
 # Sample i of clip kind (65536 at 48 kHz): hiss, swish, thud, bell,
 # chirp, hop, boom, FM voice by kind (0-12) under an attack and a

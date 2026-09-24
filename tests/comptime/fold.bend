@@ -1,6 +1,6 @@
 # a two-argument macro: f(h, acc) substitutes h at parse and leaves the
-# second application to the checker's beta step (infer-app on a lambda
-# head); a def name works the same. the list precedes the accumulator:
+# second application to term_higher's beta step (a lambda head applied
+# is its body); a def name works the same. the list precedes the accumulator:
 # descent reads the live columns left to right
 import Base
 

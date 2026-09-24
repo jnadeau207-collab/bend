@@ -28,19 +28,21 @@ function allow(at: string | RegExp, cap: number, bytes = false): void {
     .replace(/[.]/g, "\\.") + "$") : at, cap, bytes });
 }
 
-allow(/^\.github\/ISSUE_TEMPLATE\/(bug|config)\.yml$/, 600);
+allow(/^\.github\/ISSUE_TEMPLATE\/(bug|feature|config)\.yml$/, 600);
 allow(".gitattributes", 200);
 allow(".gitignore", 100);
 allow("AGENTS.md", 2000);
+allow("CHANGELOG.md", 6000);
 allow("README.md", 3000);
 allow("WONTFIX.txt", 1500);
 allow("LICENSE", 4000);
-allow("bend2/base.bend", 24000);
+allow("flake.nix", 1500);
+allow("bend2/base.bend", 32000);
 allow("bend2/bend.lean", 400000);
-allow("bend2/bend.ts", 41000);
-allow("bend2/comp.ts", 61500);
+allow("bend2/bend.ts", 44000);
+allow("bend2/comp.ts", 64000);
 allow("bend2/main.ts", 10000);
-allow(/^bend2\/effs\/[a-z_]+\.(c|js)$/, 4000);
+allow(/^bend2\/effs\/[a-z0-9_]+\.(c|js)$/, 4000);
 allow(/^bend2\/pack\/(\.gitignore|package\.json|tsconfig\.json|bun\.lock)$/, 1000);
 allow(/^bend2\/docs\/(BendRT|BendTT)\/(main\.typ|refs\.bib)$/, 60000);
 allow("bend2/docs/bend.sublime-syntax", 1000);
@@ -59,6 +61,8 @@ allow(/^demos\/[a-z0-9_]+\/[A-Za-z0-9_]+\.bend$/, 64000);
 allow(/^demos\/[a-z0-9_]+\/[A-Za-z_]+\.(c|sh|md)$/, 4000);
 allow(/^demos\/[a-z0-9_]+\/web\/(index\.html|main\.js|bunfig\.toml)$/, 4000);
 allow("guide/GUIDE.md", 12000);
+allow("guide/EFFECTS.md", 1600);
+allow("guide/SHADERS.md", 4200);
 allow(/^paper\/(BendRT|BendTT)\.pdf$/, 400000, true);
 allow(/^media\/intro\.(gif|mp4)$/, 25000000, true);
 allow(/^media\/(runtime|checker|parallel)\.gif$/, 6000000, true);
@@ -67,8 +71,11 @@ allow(/^media\/logo_(bend|hoc)\.png$/, 100000, true);
 allow(/^media\/game_[a-z_]+\.gif$/, 2000000, true);
 allow(/^media\/slash_boss_3d\/[a-z_]+\.wav$/, 400000, true);
 allow(/^gates\/(_lib|_run|perf|ping|repo|test)\.ts$/, 6000);
-allow(/^tests\/[a-z]+\/[a-z0-9_]+\.bend$/, 16000);
+allow(/^tests\/[a-z]+\/([a-z0-9-]+\/)?[a-z0-9_]+\.bend$/, 16000);
 allow(/^tests\/[a-z]+\/[a-z0-9_]+\.(c|js)$/, 8000);
+allow(/^tools\/bend-fmt-lsp\/(\.gitignore|README\.md|package\.json|package-lock\.json|tsconfig\.json)$/, 4000);
+allow(/^tools\/bend-fmt-lsp\/src\/(formatter|server)\.ts$/, 8000);
+allow(/^tools\/bend-fmt-lsp\/src\/test\/[a-z_]+\.test\.ts$/, 4000);
 
 // Gate
 // ====

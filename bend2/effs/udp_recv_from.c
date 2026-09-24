@@ -11,7 +11,7 @@ static Term udp_recv_from_more(Env e, IoWork* w) {
   w->size = io_sys_end(w, recvfrom(fd, w->data, (size_t)w->made, 0,
     (struct sockaddr*)&at, &alen));
   if (w->code == EAGAIN) {
-    return io_wait_on(w, fd, POLLIN, udp_recv_from_more);
+    return io_wait_on(w, fd, POLLIN, 0, udp_recv_from_more);
   }
   inet_ntop(AF_INET, &at.sin_addr, host, 16);
   Term r = w->code ? io_fail(e, w->code, NULL)

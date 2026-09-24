@@ -29,14 +29,14 @@ A failing invariant is fixed at its source. Never weaken a theorem, expected val
 - `bend2/main.ts`: CLI and build driver.
 - `bend2/base.bend`: base library.
 - `bend2/bend.lean`: mechanized core.
-- `bend2/effs/`: IO effects.
+- `bend2/effs/`: IO effect sources per backend; related effects may share one.
 - `bend2/docs/F64_CONTRACT.md`: numeric semantics.
 - `bend2/docs/F64_IMPLEMENTATION.md`: numeric execution order.
 - `tests/`: executable contracts; every regression belongs here.
 - `gates/test.ts`: all tests.
 - `gates/perf.ts`: pinned performance.
 - `gates/repo.ts`: repository shape and size.
-- `gates/ping.ts`: installer/release integration.
+- `gates/ping.ts`: installer, compiled bend, its daily version check, release.
 - `gates/_run.ts`: all four gates; the 30 s cap is law.
 
 ## Numerical rule

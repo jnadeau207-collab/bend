@@ -41,15 +41,18 @@ type List<a, -A: Kind(a)> is Kind(a):
   Nil{}
   Con{head: A, tail: List<a, A>}
 
-law Word:
-  for n: Nat
-  Data
-
 type Word.Nil is Data:
   WNil{}
 
 type Word.Con<-p: Nat> is Data:
   WCon{head: Bool, tail: Word(p)}
+
+def Word(n: Nat) -> Data:
+  match n:
+    case 0n:
+      Word.Nil
+    case 1n+p:
+      Word.Con<p>
 
 type U32 is Data:
   U32{data: Word(32n)}
@@ -112,35 +115,16 @@ type IO.OP<-R: Type> is Type:
   Emit{value: R}
   Halt{code: U32, message: String}
 
-law Pair:
-  for -A: Type
-  for -B: Type
-  Type
-
-law IO:
-  for -A: Type
-  Type
-
 type App<-S: Type> is Type:
   App{view: S -> Pair(S, Image), tick: List<Event> -> S -> IO(Maybe<S>)}
 
 # Defs
 # ====
 
-# Word
-# ----
-
-def Word(n):
-  match n:
-    case 0n:
-      Word.Nil
-    case 1n+p:
-      Word.Con<p>
-
 # Pair
 # ----
 
-def Pair(A, B):
+def Pair(-A: Type, -B: Type) -> Type:
   Sigma<&1, &1, A, _ => B>
 
 def Exists(-A: Type, -B: @-x: A -> Type) -> Type:
@@ -160,7 +144,7 @@ def Pair.snd(-A: Type, -B: Type, p: A & B) -> B:
 # Effects
 # -------
 
-def IO(A):
+def IO(-A: Type) -> Type:
   @-R: Type ->
   @k: (A -> IO.OP<R>) ->
   IO.OP<R>
@@ -204,6 +188,10 @@ def IO.pass(-A: Type, r: Result<&1, &1, U32 & String, A>) -> IO(A):
 def IO.try(-A: Type, act: IO(Result<&1, &1, U32 & String, A>)) -> IO(A):
   IO.bind(Result<&1, &1, U32 & String, A>, A, act, IO.pass(A))
 
+def IO.random_u32() -> IO(Result<&1, &1, U32 & String, U32>):
+  import "./effs/random_u32.c"
+  import "./effs/random_u32.js"
+
 def IO.spawn(-A: Type, act: IO(A)) -> IO(Unit):
   import "./effs/spawn.c"
   import "./effs/spawn.js"
@@ -217,20 +205,20 @@ def IO.now() -> IO(Nat):
   import "./effs/now.js"
 
 def Chan.new(-A: Type, room: U32) -> IO(Chan(A)):
-  import "./effs/chan_new.c"
-  import "./effs/chan_new.js"
+  import "./effs/chan.c"
+  import "./effs/chan.js"
 
 def Chan.send(-A: Type, chan: Chan(A), value: A) -> IO(Bool):
-  import "./effs/chan_send.c"
-  import "./effs/chan_send.js"
+  import "./effs/chan.c"
+  import "./effs/chan.js"
 
 def Chan.recv(-A: Type, chan: Chan(A)) -> IO(Maybe<&1, A>):
-  import "./effs/chan_recv.c"
-  import "./effs/chan_recv.js"
+  import "./effs/chan.c"
+  import "./effs/chan.js"
 
 def Chan.close(-A: Type, chan: Chan(A)) -> IO(Unit):
-  import "./effs/chan_close.c"
-  import "./effs/chan_close.js"
+  import "./effs/chan.c"
+  import "./effs/chan.js"
 
 def IO.fork.go(-A: Type, act: IO(A), chan: Chan(A)) -> IO(Chan(A)):
   +c = chan
@@ -262,10 +250,25 @@ def File.read(file: File, max: U32) ->
 
 def File.read_bytes(file: File, max: U32) ->
   IO(File & Result<&1, &1, U32 & String, List<&2, U32>>):
-  import "./effs/file_read_bytes.c"
-  import "./effs/file_read_bytes.js"
+  import "./effs/file_read.c"
+  import "./effs/file_read.js"
+
+def File.read_at(file: File, offset: U32, max: U32) ->
+  IO(File & Result<&1, &1, U32 & String, List<&2, U32>>):
+  import "./effs/file_read.c"
+  import "./effs/file_read.js"
+
+def File.size(file: File) ->
+  IO(File & Result<&1, &1, U32 & String, U32>):
+  import "./effs/file_size.c"
+  import "./effs/file_size.js"
 
 def File.write(file: File, data: String) ->
+  IO(File & Result<&1, &1, U32 & String, Unit>):
+  import "./effs/file_write.c"
+  import "./effs/file_write.js"
+
+def File.write_bytes(file: File, data: List<&2, U32>) ->
   IO(File & Result<&1, &1, U32 & String, Unit>):
   import "./effs/file_write.c"
   import "./effs/file_write.js"
@@ -297,6 +300,11 @@ def TCP.recv(sock: Socket, max: U32) ->
   IO(Socket & Result<&1, &1, U32 & String, String>):
   import "./effs/tcp_recv.c"
   import "./effs/tcp_recv.js"
+
+def TCP.poll(sock: Socket, max: U32, ms: U32) ->
+  IO(Socket & Result<&1, &1, U32 & String, Maybe<&1, String>>):
+  import "./effs/tcp_poll.c"
+  import "./effs/tcp_poll.js"
 
 def UDP.bind(port: U32) -> IO(Result<&1, &1, U32 & String, Socket>):
   import "./effs/udp_bind.c"
@@ -344,15 +352,15 @@ def Window.close(window: Window) -> IO(Unit):
   import "./effs/window_close.js"
 
 def Audio.open(rate: U32) -> IO(Result<&1, &1, U32 & String, Audio>):
-  import "./effs/audio_open.c"
+  import "./effs/audio.c"
   import "./effs/audio_open.js"
 
 def Audio.write(audio: Audio, samples: List<&2, F32>) -> IO(Audio & U32):
-  import "./effs/audio_write.c"
+  import "./effs/audio.c"
   import "./effs/audio_write.js"
 
 def Audio.close(audio: Audio) -> IO(Unit):
-  import "./effs/audio_close.c"
+  import "./effs/audio.c"
   import "./effs/audio_close.js"
 
 # Equal
@@ -607,10 +615,63 @@ def Nat.is_ge(a: Nat, b: Nat) -> Bool:
   Cmp.is_ge(Nat.cmp(a, b))
 
 def Nat.min(+a: Nat, +b: Nat) -> Nat:
-  Bool.pick(Nat, Nat.is_lt(a, b), a, b)
+  match a b:
+    case 0n _:
+      0n
+    case 1n+ap 0n:
+      0n
+    case 1n+ap 1n+bp:
+      1n+Nat.min(ap, bp)
 
 def Nat.max(+a: Nat, +b: Nat) -> Nat:
-  Bool.pick(Nat, Nat.is_lt(a, b), b, a)
+  match a b:
+    case 0n _:
+      b
+    case 1n+ap 0n:
+      1n+ap
+    case 1n+ap 1n+bp:
+      1n+Nat.max(ap, bp)
+
+law Nat.ge_refl:
+  for a: Nat
+  {Nat.is_ge(a, a) == True{} : Bool}
+
+def Nat.ge_refl(a):
+  match a:
+    case 0n:
+      {==}
+    case 1n+p:
+      Nat.ge_refl(p)
+
+law Nat.max_ge_l:
+  for +a: Nat
+  for +b: Nat
+  {Nat.is_ge(Nat.max(a, b), a) == True{} : Bool}
+
+def Nat.max_ge_l(a, b):
+  match a b:
+    case 0n 0n:
+      {==}
+    case 0n 1n+bp:
+      {==}
+    case 1n+ap 0n:
+      Nat.ge_refl(a)
+    case 1n+ap 1n+bp:
+      Nat.max_ge_l(ap, bp)
+
+law Nat.max_ge_r:
+  for +a: Nat
+  for +b: Nat
+  {Nat.is_ge(Nat.max(a, b), b) == True{} : Bool}
+
+def Nat.max_ge_r(a, b):
+  match a b:
+    case 0n _:
+      Nat.ge_refl(b)
+    case 1n+ap 0n:
+      {==}
+    case 1n+ap 1n+bp:
+      Nat.max_ge_r(ap, bp)
 
 def Nat.div.fin(qr: Nat & Nat) -> Nat:
   (q, r) = qr
@@ -1370,6 +1431,17 @@ def U32.from_nat(n: Nat) -> U32:
       0
     case 1n+p:
       U32.inc(U32.from_nat(p))
+
+def U32.log2.go(+k: Nat, +n: U32, +d: Nat) -> Nat:
+  match k:
+    case 0n:
+      d
+    case 1n+p:
+      U32.log2.go(p, U32.shr(n),
+        Nat.add(d, U32.to_nat(Bool.to_u32(U32.is_lt(1, n)))))
+
+def U32.log2(+n: U32) -> Nat:
+  U32.log2.go(32n, n, 0n)
 
 def U32.divmod.go.fin(-p: Nat, q: Word(p), s: U32, b: U32, g: Bool) ->
   Word(1n+p) & U32:
@@ -2189,6 +2261,74 @@ def Array.clone(-T: Data, a: Array<T>) -> Array<T> & Array<T>:
     case ANode{xs, ys}:
       Array.clone.node(T, Array.clone(T, xs), Array.clone(T, ys))
 
+# A fork is two handles to one array in O(1). Both read and write the
+# same cells, so racing writes go through the atomics; a match on a
+# handle copies its part, as a clone does. An atomic takes an Array<U32>
+# (fadd an Array<F32>) and returns the array with the old value.
+
+@unsafe
+def Array.fork(-T: Type, +a: Array<T>) -> Array<T> & Array<T>:
+  (a, a)
+
+@unsafe
+def Array.join(-T: Type, a: Array<T>, b: Array<T>) -> Array<T>:
+  a
+
+law Array.atomic.add:
+  for  a: Array<U32>
+  for +i: U32
+  for +v: U32
+  Array<U32> & U32
+
+law Array.atomic.min:
+  for  a: Array<U32>
+  for +i: U32
+  for +v: U32
+  Array<U32> & U32
+
+law Array.atomic.max:
+  for  a: Array<U32>
+  for +i: U32
+  for +v: U32
+  Array<U32> & U32
+
+law Array.atomic.and:
+  for  a: Array<U32>
+  for +i: U32
+  for +v: U32
+  Array<U32> & U32
+
+law Array.atomic.or:
+  for  a: Array<U32>
+  for +i: U32
+  for +v: U32
+  Array<U32> & U32
+
+law Array.atomic.xor:
+  for  a: Array<U32>
+  for +i: U32
+  for +v: U32
+  Array<U32> & U32
+
+law Array.atomic.exch:
+  for  a: Array<U32>
+  for +i: U32
+  for +v: U32
+  Array<U32> & U32
+
+law Array.atomic.cas:
+  for  a: Array<U32>
+  for +i: U32
+  for +x: U32
+  for +v: U32
+  Array<U32> & U32
+
+law Array.atomic.fadd:
+  for  a: Array<F32>
+  for +i: U32
+  for +v: F32
+  Array<F32> & F32
+
 def Array.new(-T: Data, +d: Nat, +v: T) -> Array<T>:
   match d:
     case 0n:
@@ -2244,13 +2384,32 @@ def Array.to_list.go(~T: Type, a: Array<T>, acc: List<T>) -> List<T>:
 def Array.to_list(~T: Type, a: Array<T>) -> List<T>:
   Array.to_list.go(~T, a, Nil{})
 
-def Array.map(~T: Type, ~U: Type, ~f: T -> U, a: Array<T>) -> Array<U>:
-  match a:
-    case ALeaf{x}:
-      ALeaf{f(x)}
-    case ANode{xs, ys}:
-      l r = Array.map(~T, ~U, ~f, xs) Array.map(~T, ~U, ~f, ys)
-      ANode{l, r}
+def Array.map.go(
+  ~T: Data, ~U: Data, ~f: T -> U, +n: Nat, +i: U32, b: Array<U>,
+  r: Array<T> & T
+) -> Array<U>:
+  match n:
+    case 0n:
+      b
+    case 1n+p:
+      (a, x) = r
+      +j = U32.inc(i)
+      Array.map.go(~T, ~U, ~f, p, j, Array.set(U, b, i, f(x)),
+        Array.get(T, a, j))
+
+def Array.map.at(
+  ~T: Data, ~U: Data, ~f: T -> U, v: U, an: Array<T> & U32
+) -> Array<U>:
+  (a, +n) = an
+  Array.map.go(~T, ~U, ~f, U32.to_nat(U32.sub(n, 1)), 1,
+    Array.new(U, U32.log2(n), v), Array.get(T, a, 1))
+
+def Array.map.seed(~T: Data, ~U: Data, ~f: T -> U, r: Array<T> & T) -> Array<U>:
+  (a, x) = r
+  Array.map.at(~T, ~U, ~f, f(x), Array.size(T, a))
+
+def Array.map(~T: Data, ~U: Data, ~f: T -> U, a: Array<T>) -> Array<U>:
+  Array.map.seed(~T, ~U, ~f, Array.get(T, a, 0))
 
 # Map
 # ---

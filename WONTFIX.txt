@@ -13,9 +13,11 @@ DESIGN (intentional choices)
   The checker skips an unused argument; a binary evaluates it. Same value,
   different cost.
 
-The checker skips the unused argument of an applied lambda (#820)
+The checker skips dead code (#820, #878)
   In `(y => x)(e)`, `e` is dead: a comment, invisible to the theory, with no
-  runtime effect. The checker does not visit it, for performance reasons.
+  runtime effect. A match arm an earlier arm shadows, which wins no leaf, is
+  dead the same way. The checker visits neither. This makes the check faster
+  and costs no correctness: the term it checks is the term it runs.
 
 `~` template arguments are compile-time (#784)
   A `~` argument must be closed. A def parameter is a runtime value, so it
@@ -42,6 +44,12 @@ A base-file helper may call a law filled below it (#793)
   `base.bend` carries this carve-out and the Lean formalization states it.
   User files do not get it.
 
+A handle type is a law of Base (#825)
+  `File`, `Socket`, `Window` and the other handle types are laws that only
+  Base may leave unfilled. A user law of kind `Type` counts as open, so a
+  custom effect reuses a Base handle type. Opening this to user files touches
+  consistency; we will address the gap later.
+
 CAPACITY (a small team keeps the language at a size it can maintain)
 
 Windows is not supported (#788)
@@ -50,28 +58,31 @@ Windows is not supported (#788)
 No Vulkan or other extra GPU lanes (#811)
   Metal and CUDA only.
 
-No native library target (#813)
-  The C output is a whole program with one `main`. Call Bend from JS for a
-  library shape.
-
 gcc is not supported (#773)
   See DESIGN.
 
 OPEN (no solution we trust yet; patches would cost us control of the codebase)
 
-`Array` admits unbalanced trees the backends reject (#808)
-  The checker can prove a size the runtime traps on. A temporary safeguard
-  makes JS trap like C. The real fix (a depth index or hidden constructors)
-  is being designed.
-
-F32 NaN payload bits are not preserved on the JS lane (#797)
+F32 NaN payload bits are not preserved on the JS lane (#797, #872)
   An F32 is a JS number there. A bit-exact representation measured 7-8x
   slower on F32 code (nbody 3.5 s -> 23.7 s), so the C lane is the
-  reference and JS keeps the number.
+  reference and JS keeps the number. A program that reads those bits as a
+  dependent tag takes the two lanes down two arms, and the arm JS takes may
+  duplicate an affine value (#872). The C lane is the reference there too.
 
-A `bend PROOF.bend` guard for un-imported LAWS.bend files (#776)
-  A PROOF.bend that omits `import ./LAWS.bend` checks clean. We have not
-  decided how a proof file names the laws it must fill.
+RUNTIME (the theory allows it, the runtime does not run it yet; we remove
+these over time; do not open an issue)
+
+An unbalanced `Array` tree fail-stops at runtime (#808)
+  `ALeaf`/`ANode` are public, so the checker admits a tree whose halves
+  differ; every backend stores an array as one flat block and traps on such
+  a node. A depth index would fix it in the type, but Bend does no inference,
+  so `xs[i]` would have to become `xs[i^d]`; we chose not to. Like the Nat
+  cap and the block-class cap below, this is a runtime limit, not a design.
+
+A Nat past 2^48-1, or an array past block class 31, fail-stops (#779)
+  Immediates hold 48 bits; blocks have 32 classes. The theory has no such
+  bound.
 
 SOON (we will add it; do not open an issue)
 
@@ -79,3 +90,7 @@ Continuation passing for non-tail calls on the JS lane (#798, #802)
   Deep recursion (String.length over 100k chars, List.length over 200k
   elements) overflows the host stack. Until then String.length is an
   intrinsic; other folds may overflow.
+
+A native library target for pure defs (#813)
+  Today the C output is one program with a `main`. Exporting chosen defs with
+  a header and a lifecycle is planned, not scheduled.

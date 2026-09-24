@@ -13,7 +13,7 @@ static Term tcp_recv_pack(Env e, IoWork* w) {
 static Term tcp_recv_more(Env e, IoWork* w) {
   int fd  = (int)w->hand;
   w->size = io_sys_end(w, recv(fd, w->data, (size_t)w->made, 0));
-  return w->code == EAGAIN ? io_wait_on(w, fd, POLLIN, tcp_recv_more)
+  return w->code == EAGAIN ? io_wait_on(w, fd, POLLIN, 0, tcp_recv_more)
     : tcp_recv_pack(e, w);
 }
 

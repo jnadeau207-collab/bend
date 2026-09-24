@@ -1,20 +1,10 @@
-# the typed-let statement is not grammar: a bend let is `x = v`, and a
-# typed value spells the Ann brace, `x = {v : T}`.
-# ported from bend3: bend3 ratified `x : T = v`; bend pins the refusal
+# a typed let, `x : T = v`, binds x to {v : T}: the annotation is checked
+# (a reply may end in `: T` too, as a group's annotation)
 import Base
 
-law main:
-  U32
-
-def main():
+def main() -> U32:
+  -n : Nat = 5n
   z : U32 = 30
-  z
+  (x : U32 = 1; y : U32 = 2; z + x + y : U32)
 
-#|Error:
-#|- expected : 'def', 'type' or 'law'
-#|- observed : ':'
-#|Location:
-#| 9 | def main():
-#|10>|   z : U32 = 30
-#|11 |   z
-#|exit 1
+#|33

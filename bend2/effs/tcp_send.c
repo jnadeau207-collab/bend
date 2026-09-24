@@ -8,7 +8,7 @@ static Term tcp_send_more(Env e, IoWork* w) {
   while (w->code == 0 && (u64)w->made < w->size) {
     ssize_t n = send(fd, w->data + w->made, w->size - (u64)w->made, 0);
     if (n < 0 && errno == EAGAIN) {
-      return io_wait_on(w, fd, POLLOUT, tcp_send_more);
+      return io_wait_on(w, fd, POLLOUT, 0, tcp_send_more);
     }
     w->made += io_sys_end(w, n);
   }

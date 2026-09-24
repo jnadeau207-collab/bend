@@ -1,7 +1,6 @@
-# the growing self-call, doubling: the argument's key doubles per level,
-# so the key wall (2048 chars) leaves the call plain at level 8 and the
-# checker refuses the name there (an argument that grows only as a Nat
-# literal prints short and escapes the wall: a host crash, no program accepted)
+# the growing self-call, doubling: the argument doubles per level, so it
+# passes the size a ~ argument may have before it reaches the 64th
+# instance, and the call is refused where it crosses
 import Base
 
 def inc(n: Nat) -> Nat:
@@ -18,13 +17,12 @@ def main() -> Nat:
   grow(~inc, 2n)
 
 #|Error:
-#|- expected : a template applied to closed ~ arguments (a def parameter is not comptime)
+#|- expected : a ~ argument that stops growing
 #|- observed : grow
 #|Context:
-#|- f : @_:Nat -> Nat
 #|- p : Nat
-#|Location: grow~8
-#|14 |     case 1n+p:
-#|15>|       grow(~(y => f(f(y))), p)
-#|16 |
+#|Location: grow~9
+#|13 |     case 1n+p:
+#|14>|       grow(~(y => f(f(y))), p)
+#|15 |
 #|exit 1
