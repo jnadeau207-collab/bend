@@ -241,10 +241,10 @@ const OPERATIONS: Record<string, Intr> = Object.setPrototypeOf({
   ...tpl_ops("f64_", CMPS, "(f64_num($0) $o f64_num($1))"),
   ...tpl_ops("f64_", "sqrt", "f64_of(sqrt(f64_num($0)))",
     "f64_of(Math.sqrt(f64_num($0)))"),
-  f64_fma: {
-    C: "f64_of(fma(f64_num($0), f64_num($1), f64_num($2)))",
-  },
-  ...tpl_ops("f64_", "to_f32", "f32_rewrap((f32)f64_num(f64_of(f64_num($0))))",
+  ...tpl_ops("f64_", "fma", "f64_of(fma(f64_num($0), f64_num($1), f64_num($2)))",
+    "f64_fma($0, $1, $2)"),
+  ...tpl_ops("f64_", "to_f32",
+    "(f64_num($0) != f64_num($0) ? 0x7FC00000 : f32_rewrap((f32)f64_num($0)))",
     "Math.fround(f64_num(f64_of(f64_num($0))))"),
   f64_to_u64: {
     C:    "(f64_num($0) >= 0 && f64_num($0) < 0x1p64 ? (u64)f64_num($0) : 0)",
@@ -253,6 +253,13 @@ const OPERATIONS: Record<string, Intr> = Object.setPrototypeOf({
   },
   ...tpl_ops("", "u64_to_f64:(double):Number f32_to_f64:f32_unbox:",
     "f64_of($o($0))"),
+  u64_show: {
+    JS: "String($0)",
+  },
+  u64_read: {
+    JS: "(/^\\d+$/.test($0) && BigInt($0) >> 64n === 0n"
+      + " ? {$: \"Some\", value: BigInt($0)} : {$: \"None\"})",
+  },
   f64_show: {
     C:    "f32_show(e, $0, 1)",
     call: true,
@@ -594,6 +601,26 @@ const F32_VIEW = new DataView(new ArrayBuffer(8));
 ${[Bend.f32_text, Bend.f32_show, Bend.f32_to_bits, Bend.f32_from_bits,
   Bend.f64_of, Bend.f64_num].join("\n\n")}
 
+function f64_fma(a, b, c) {
+  const [x, y, z] = [a, b, c].map(f64_num);
+  if (![x, y, z].every(isFinite)) {
+    return f64_of(isFinite(x) && isFinite(y) ? z : x * y + z);
+  }
+  const [[p, i], [q, j], [r, k]] = [a, b, c].map((v) => {
+    const e = Number(v >> 52n & 2047n);
+    const m = v & 0xFFFFFFFFFFFFFn | BigInt(e > 0) << 52n;
+    return [v >> 63n ? -m : m, Math.max(e, 1) - 1075];
+  });
+  const E = Math.min(i + j, k);
+  const s = (p * q << BigInt(i + j - E)) + (r << BigInt(k - E));
+  const n = s < 0n ? -s : s;
+  const L = Math.max(E + n.toString(2).length - 53, -1074);
+  const d = BigInt(L - E - 2);
+  const t = n >> d;
+  return f64_of(s ? (s < 0n ? -0.25 : 0.25) * Number(t | BigInt(t << d !== n))
+    * 2 ** L : x * y + z);
+}
+
 function f32_read(s, f = Math.fround) {
   const re = /^\s*[+-]?((\d+\.?\d*|\.\d+)(e[+-]?\d+)?|inf(inity)?|nan)$/i;
   const v = Number(s.replace(/inf\w*/i, "Infinity"));
@@ -630,7 +657,7 @@ const FOLDS: Map<HTerm, HTerm | null> = new Map();
 
 const FLATS: Map<Name, boolean> = new Map();
 
-const SIGS: Map<Name, Sig> = new Map();
+const SIGS: Map<string, Sig> = new Map();
 
 const BRWS: Map<Name, boolean[]> = new Map();
 
@@ -1082,6 +1109,10 @@ function lay_node(book: Bend.Book, k: Name): Lay {
     ? ctr_doms(book, book.ctrs[k]) : []).map((A) => lay_of(book, A)))]]));
 }
 
+function lay_key(cb: Carb, k: Name, ers: HTerm[]): string {
+  return [k, ...ers.map((e) => JSON.stringify(lay_of(cb.book, e)))].join("|");
+}
+
 function lay_eq(a: Lay, b: Lay): boolean {
   return a === b || JSON.stringify(a) === JSON.stringify(b);
 }
@@ -1206,20 +1237,24 @@ function quant_live(q: Bend.Quant): boolean {
 
 // A def's live parameters, the layouts a call passes and its return layout
 // (boxes for a foreign def and Clo~apply).
-function sig_def(cb: Carb, k: Name): Sig {
-  return memo(SIGS, k, () => {
+function sig_def(cb: Carb, k: Name, ers: HTerm[] = []): Sig {
+  return memo(SIGS, lay_key(cb, k, ers), () => {
     const tld = def_body(cb, k);
     if (tld?.$ !== "Def") {
       return { live: [], lays: [BOX, BOX], ret: BOX };
     }
-    const doms = tele_unbind(cb.book, tld.T).doms;
-    const live = doms.slice(0, tld.n).filter(live_dom);
+    const xs = ers.slice(0, Math.max(0,
+      tele_unbind(cb.book, tld.T).doms.findIndex(live_dom)));
+    const T = Bend.tele_fill(cb.book, tld.T, xs, Bend.ctx_nil());
+    const n = tld.n - xs.length;
+    const doms = tele_unbind(cb.book, T).doms;
+    const live = doms.slice(0, n).filter(live_dom);
     const lays = live.map(([, , A]) => lay_of(cb.book, A));
     if (def_foreign(tld)) {
       return { live, lays: [...lays.map(() => BOX), BOX], ret: BOX };
     }
-    const ret = lay_of(cb.book, Bend.tele_fill(cb.book, tld.T,
-      Array(tld.n).fill(DUMMY), Bend.ctx_nil()));
+    const ret = lay_of(cb.book, Bend.tele_fill(cb.book, T,
+      Array(n).fill(DUMMY), Bend.ctx_nil()));
     return { live, lays: lay_wide(lays), ret: ret.ks.length === 0 ? BOX : ret };
   });
 }
@@ -2159,7 +2194,8 @@ function emit_jump(fl: File, args: string[], k: Name,
 
 // A call's arguments, laid out as the def takes them: nested ones first,
 // owned ones popped before borrowed ones are read (a read asks a lend).
-function emit_args(fl: File, ck: Call, jump = false, fork = false): string[] {
+function emit_args(fl: File, ck: Call, jump = false, fork = false,
+  lays = sig_def(fl, ck.k).lays): string[] {
   const brw = brw_of(fl, ck.k);
   ck.all.forEach((a, q) => {
     if (fl.hot.has(ck.k + "~" + q)) {
@@ -2169,7 +2205,6 @@ function emit_args(fl: File, ck: Call, jump = false, fork = false): string[] {
   const xs = ck.args.map((a) => term_strip(a));
   const vars = xs.filter((x) => x.$ === "Var");
   const rest = fl.rest;
-  const lays = sig_def(fl, ck.k).lays;
   const vs = ck.args.map((a, i): Val | null => {
     if (xs[i].$ === "Var") {
       return null;
@@ -2241,9 +2276,9 @@ function emit_fuse(fl: File, ck: Call, dst?: Dst, tail = false): Dst {
   const tld = fl.book.tlds[ck.k] as Def;
   const doms = tele_unbind(fl.book, tld.T).doms;
   const ers = ck.all.filter((_, i) => i < tld.n && !quant_live(doms[i][0]));
-  const { lays, ret } = sig_def(fl, ck.k);
+  const { lays, ret } = sig_def(fl, ck.k, ers);
   const flat = flat_of(ck.k);
-  const ws = emit_args(fl, ck, tail && !flat);
+  const ws = emit_args(fl, ck, tail && !flat, false, lays);
   let at = 0;
   const vals = lays.map((lay) => val_new(ws.slice(at, at += lay.ks.length),
     lay));
@@ -2281,10 +2316,10 @@ function emit_fuse(fl: File, ck: Call, dst?: Dst, tail = false): Dst {
 }
 
 // Opens a unit of `k`: fresh state, parameters bound, segment made.
-function emit_open(fl: File, k: Name): Val[] {
+function emit_open(fl: File, k: Name, ers: HTerm[] = []): Val[] {
   Object.assign(fl, { spares: [], tab: 2, uses: new Map(),
     fuel: FOLD_FUEL, def: k });
-  const { live, lays, ret } = sig_def(fl, k);
+  const { live, lays, ret } = sig_def(fl, k, ers);
   const vals = lays.map((l, i) =>
     val_new(l.ks.map(() => name_local(fl, live[i][1])), l));
   // a borrowed parameter's boxes are rooted in it
@@ -2299,8 +2334,7 @@ function emit_open(fl: File, k: Name): Val[] {
 }
 
 function emit_native(fl: File, ck: Call, ers: HTerm[]): string {
-  const key = [ck.k, ...ers.map((e) => JSON.stringify(lay_of(fl.book, e)))]
-    .join("|");
+  const key = lay_key(fl, ck.k, ers);
   const got = fl.spun.get(key);
   if (got !== undefined) {
     return seg_ref(fl, got);
@@ -2309,7 +2343,7 @@ function emit_native(fl: File, ck: Call, ers: HTerm[]): string {
   fl.spun.set(key, name);
   const tld = fl.book.tlds[ck.k] as Def;
   const outer = { ...fl };
-  const vals = emit_open(fl, ck.k);
+  const vals = emit_open(fl, ck.k, ers);
   const seg = fl.seg;
   seg.fid = name;
   const dst = val_new(seg.ret.ks.map(() => name_local(fl, "v")), seg.ret);
@@ -2619,7 +2653,8 @@ function emit_body(fl: File, tm: HTerm, ty0: HTerm | null,
         return emit_body(fl, x.f(t), all.B(t), ers.slice(1), args, dst);
       }
       const o = term_open(x);
-      const v = val_hold(fl, val_to(fl, args[0], lay_of(fl.book, all.A)), x.k);
+      const v = val_hold(fl, ty_wnf(fl.book, all.A)?.$ === "Var" ? args[0]
+        : val_to(fl, args[0], lay_of(fl.book, all.A)), x.k);
       bind_uses(fl, o.ps[0], v, [o.b], all.A);
       return emit_body(fl, o.b, all.B(DUMMY), ers, args.slice(1), dst);
     }
