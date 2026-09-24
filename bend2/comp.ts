@@ -124,10 +124,13 @@ type Call = {
   bang?: boolean;
 };
 
+// A soft op's C runs only where the lane has a double; elsewhere its def
+// does (a lane with no JS runs its def too).
 type Intr = {
   C?: string | string[];
   call?: boolean;
-  JS: string;
+  soft?: boolean;
+  JS?: string;
 };
 
 type Dom = [Bend.Quant, Name, HTerm];
@@ -220,6 +223,84 @@ const OPERATIONS: Record<string, Intr> = Object.setPrototypeOf({
   u32_from_nat: {
     C:  "((u64)(u32)($0))",
     JS: "Number($0 & 0xFFFFFFFFn)",
+  },
+  // a U64 is one u64 in C (its halves joined) and a BigInt in JS
+  ...tpl_ops("u64_", "add:+ sub:- mul:* and:& or:| xor:^", "($0 $o $1)",
+    "BigInt.asUintN(64, $0 $o $1)"),
+  ...tpl_ops("u64_", CMPS, "((u64)($0 $o $1))", "($0 $o $1)"),
+  ...tpl_ops("u64_", "inc:+ shl:<< shr:>>", "($0 $o 1)",
+    "BigInt.asUintN(64, $0 $o 1n)"),
+  ...tpl_ops("u64_", "shln:<< shrn:>>", "($1 >= 64 ? 0 : $0 $o $1)",
+    "($1 >= 64n ? 0n : BigInt.asUintN(64, $0 $o $1))"),
+  u64_div: {
+    C:  "($1 == 0 ? 0 : $0 / $1)",
+    JS: "($1 === 0n ? 0n : $0 / $1)",
+  },
+  u64_mod: {
+    C:  "($1 == 0 ? $0 : $0 % $1)",
+    JS: "($1 === 0n ? $0 : $0 % $1)",
+  },
+  u64_not: {
+    C:  "(~$0)",
+    JS: "BigInt.asUintN(64, ~$0)",
+  },
+  u64_is_zero: {
+    C:  "($0 == 0)",
+    JS: "($0 === 0n)",
+  },
+  u64_cmp: {
+    C:  "(($0 > $1) + ($0 >= $1))",
+    JS: "cmp_new($0, $1)",
+  },
+  u64_from_nat: {
+    C:  "$0",
+    JS: "$0",
+  },
+  u64_clz: {
+    C:  "u64_clz($0)",
+    JS: "($0 === 0n ? 64 : 64 - $0.toString(2).length)",
+  },
+  u64_mul_hi: {
+    C:  "u64_mul_hi($0, $1)",
+    JS: "($0 * $1 >> 64n)",
+  },
+  // an F64 op computes in double where the lane has one (fma has none in
+  // JS), else its def
+  ...tpl_ops("f64_", "add:+ sub:- mul:* div:/",
+    "f64_of(f64_num($0) $o f64_num($1))", "f64_of(f64_num($0) $o f64_num($1))",
+    true),
+  ...tpl_ops("f64_", CMPS, "((u64)(f64_num($0) $o f64_num($1)))",
+    "(f64_num($0) $o f64_num($1))", true),
+  ...tpl_ops("f64_", "sqrt", "f64_of(sqrt(f64_num($0)))",
+    "f64_of(Math.sqrt(f64_num($0)))", true),
+  f64_fma: {
+    C:    "f64_of(fma(f64_num($0), f64_num($1), f64_num($2)))",
+    soft: true,
+  },
+  f64_to_u64: {
+    C:    "(f64_num($0) >= 0 && f64_num($0) < 18446744073709551616.0"
+      + " ? (u64)f64_num($0) : 0)",
+    soft: true,
+    JS:   "(f64_num($0) >= 0 && f64_num($0) < 2 ** 64"
+      + " ? BigInt(Math.trunc(f64_num($0))) : 0n)",
+  },
+  f64_to_f32: {
+    C:    "(f64_num($0) != f64_num($0) ? 0x7FC00000"
+      + " : f32_rewrap((f32)f64_num($0)))",
+    soft: true,
+    JS:   "Math.fround(f64_num($0))",
+  },
+  ...tpl_ops("", "u64_to_f64:(double):Number f32_to_f64:f32_unbox:",
+    "f64_of($o($0))", "f64_of($o($0))", true),
+  f64_show: {
+    C:    "f64_show(e, $0)",
+    call: true,
+    JS:   "f32_show(f64_num($0), 17)",
+  },
+  f64_read: {
+    C:    "f64_read(e, $0)",
+    call: true,
+    JS:   "f32_read($0, f64_of)",
   },
   ...tpl_ops("f32_", "add:+ sub:- mul:* div:/",
     "f32_rewrap(f32_unbox($0) $o f32_unbox($1))", "Math.fround($0 $o $1)"),
@@ -336,6 +417,15 @@ const OPTIMIZED: Record<Name, Native> = Object.setPrototypeOf({
   F32: {
     F32: { intr: "f32_from_bits(word_to_u32($0))" },
   },
+  U64: {
+    U64: {
+      intr: "(BigInt($0 >>> 0) | BigInt($1 >>> 0) << 32n)",
+      elim: ["Number($0 & 0xFFFFFFFFn)", "Number($0 >> 32n)"],
+    },
+  },
+  F64: {
+    F64: { intr: "$0", elim: ["$0"] },
+  },
   Char: {
     Chr: {
       intr: ([c]: string[]) => {
@@ -411,6 +501,32 @@ INLINE U32 f32_to_u32(U32 a) {
   return v >= 0.0f && v < 4294967296.0f ? (u32)v : 0;
 }
 
+// An F64's bits as a double and back, a NaN result the canonical one; a
+// lane with no double runs F64's defs instead.
+#ifndef __METAL_VERSION__
+INLINE double f64_num(u64 x) {
+  union { u64 u; double f; } p = { x };
+  return p.f;
+}
+
+INLINE u64 f64_of(double x) {
+  union { double f; u64 u; } p = { x };
+  return x != x ? 0x7FF8000000000000ull : p.u;
+}
+#endif
+
+INLINE u64 u64_clz(u64 x) {
+  return x >> 32 != 0 ? CLZ((u32)(x >> 32)) : x != 0 ? 32 + CLZ((u32)x) : 64;
+}
+
+// the high half of a 128-bit product, over 32-bit partial products
+INLINE u64 u64_mul_hi(u64 a, u64 b) {
+  u64 lo = (a & 0xFFFFFFFF) * (b & 0xFFFFFFFF);
+  u64 m1 = (a >> 32) * (b & 0xFFFFFFFF) + (lo >> 32);
+  u64 m2 = (a & 0xFFFFFFFF) * (b >> 32) + (m1 & 0xFFFFFFFF);
+  return (a >> 32) * (b >> 32) + (m1 >> 32) + (m2 >> 32);
+}
+
 INLINE Nat nat_chk(Env e, Nat n) {
   if (n > NAT_IMM) {
     err_post(e.mem, ERR_NATS);
@@ -427,24 +543,35 @@ INLINE Nat nat_mul(Env e, Nat a, Nat b) {
 
 #define f32_show(e, x) (err_post(e.mem, ERR_FIDS), 0)
 #define f32_read(e, s) (err_post(e.mem, ERR_FIDS), 0)
+#define f64_show f32_show
+#define f64_read f32_read
 
 #else
 
 static Term f32_show(Env e, Term x);
 static Term f32_read(Env e, Term s);
+static Term f64_show(Env e, Term x);
+static Term f64_read(Env e, Term s);
 
 #endif
 `.slice(1),
   IO: String.raw`
-static int f32_text(char* buf, f32 v) {
+// the shortest of d digits at most that reads back (an f32 at 9, an f64 at
+// 17, where at a power of two the decimal just above may read back first)
+static int f32_text(char* buf, double v, int d) {
   int n = 0;
   int p = 0;
   if (v != v) {
     return sprintf(buf, "nan");
   }
-  for (; p < 9; p += 1) {
-    n = snprintf(buf, 40, "%.*e", p, (double)v);
-    if (strtof(buf, NULL) == v) {
+  for (; p < d; p += 1) {
+    n = snprintf(buf, 40, "%.*e", p, v);
+    if ((d > 9 ? strtod(buf, NULL) : strtof(buf, NULL)) == v) {
+      break;
+    }
+    char* up = strchr(buf, 'e') - 1;
+    if (d > 9 && *up != '9' && fabs(strtod(buf, NULL)) < fabs(v)
+      && (*up += 1, strtod(buf, NULL) == v)) {
       break;
     }
   }
@@ -456,7 +583,7 @@ static int f32_text(char* buf, f32 v) {
   if (ex >= 21 || ex <= -7) {
     n = (int)(ep - buf) + sprintf(ep, "e%c%d", ex < 0 ? '-' : '+', abs(ex));
   } else if (ex <= p) {
-    n = snprintf(buf, 40, "%.*f", p - ex, (double)v);
+    n = snprintf(buf, 40, "%.*f", p - ex, v);
   } else {
     int s = *buf == '-';
     memmove(buf + s + 1, buf + s + 2, p);
@@ -468,19 +595,42 @@ static int f32_text(char* buf, f32 v) {
 
 static Term f32_show(Env e, Term x) {
   char buf[40];
-  return io_str(e, buf, f32_text(buf, f32_unbox(x)));
+  return io_str(e, buf, f32_text(buf, f32_unbox(x), 9));
 }
 
-static Term f32_read(Env e, Term s) {
+// the float a whole string spells (strtof's or strtod's grammar, no hex)
+static bool io_real(Env e, Term s, double* v, bool f32) {
   u64 n = 0;
   char* text = io_cstr(e, s, &n);
   char* end;
-  f32 v = strtof(text, &end);
-  Term out = n > 0 && (u64)(end - text) == n && strpbrk(text, "xX(") == NULL
-    ? io_box(e, CID_SOME, f32_rewrap(v)) : term_pak(CID_NONE, 0);
+  *v = f32 ? strtof(text, &end) : strtod(text, &end);
+  bool ok = n > 0 && (u64)(end - text) == n && strpbrk(text, "xX(") == NULL;
   free(text);
-  return out;
+  return ok;
 }
+
+static Term f32_read(Env e, Term s) {
+  double v;
+  return io_real(e, s, &v, true) ? io_box(e, CID_SOME, f32_rewrap((f32)v))
+    : term_pak(CID_NONE, 0);
+}
+
+static Term f64_show(Env e, Term x) {
+  char buf[40];
+  return io_str(e, buf, f32_text(buf, f64_num(x), 17));
+}
+
+// only a program that holds F64 has its cid
+#ifdef CID_F64
+static Term f64_read(Env e, Term s) {
+  double v;
+  if (!io_real(e, s, &v, false)) {
+    return term_pak(CID_NONE, 0);
+  }
+  u64 b = f64_of(v);
+  return io_box(e, CID_SOME, io_node(e, CID_F64, (u32)b, b >> 32));
+}
+#endif
 `.slice(1),
   JS: String.raw`
 function word_to_u32(w) {
@@ -517,7 +667,8 @@ function nat_chk(n) {
   return n;
 }
 
-function f32_show(x) {
+// the shortest decimal that reads back (an f32 at 9 digits, an f64 at 17)
+function f32_show(x, n = 9) {
   if (x !== x) {
     return "nan";
   }
@@ -526,10 +677,24 @@ function f32_show(x) {
       : x === 0 ? "-0" : "inf";
   }
   let s = "x";
-  for (let p = 1; p <= 9 && Math.fround(Number(s)) !== x; p += 1) {
+  for (let p = 1; p <= n
+    && (n > 9 ? Number(s) : Math.fround(Number(s))) !== x; p += 1) {
     s = String(Number(x.toExponential(p - 1)));
   }
   return s;
+}
+
+const F64_VIEW = new DataView(new ArrayBuffer(8));
+
+// an F64's bits (a BigInt) as a number and back, a NaN the canonical one
+function f64_num(x) {
+  F64_VIEW.setBigUint64(0, x);
+  return F64_VIEW.getFloat64(0);
+}
+
+function f64_of(x) {
+  F64_VIEW.setFloat64(0, x);
+  return x !== x ? 0x7FF8000000000000n : F64_VIEW.getBigUint64(0);
 }
 
 function f32_bits(x) {
@@ -540,10 +705,11 @@ function f32_from_bits(u) {
   return new Float32Array(new Uint32Array([u]).buffer)[0];
 }
 
-function f32_read(s) {
+// the float a string spells, f its value (an F64's: its bits, f64_of)
+function f32_read(s, f = Math.fround) {
   const re = /^\s*[+-]?((\d+\.?\d*|\.\d+)(e[+-]?\d+)?|inf(inity)?|nan)$/i;
   const v = Number(s.replace(/inf\w*/i, "Infinity"));
-  return re.test(s) ? {$: "Some", value: Math.fround(v)} : {$: "None"};
+  return re.test(s) ? {$: "Some", value: f(v)} : {$: "None"};
 }
 
 function char_new(code) {
@@ -623,12 +789,13 @@ function die(m: string): never {
 // Tpl
 // ===
 
-function tpl_ops(pre: string, names: string, C: string, JS: string):
-  Record<string, Intr> {
+function tpl_ops(pre: string, names: string, C: string, JS: string,
+  soft = false): Record<string, Intr> {
   const out: Record<string, Intr> = {};
   for (const p of names.split(" ")) {
     const [k, o = k, jo = o] = p.split(":");
-    out[pre + k] = { C: C.replaceAll("$o", o), JS: JS.replaceAll("$o", jo) };
+    out[pre + k] = { C: C.replaceAll("$o", o), JS: JS.replaceAll("$o", jo),
+      soft };
   }
   return out;
 }
@@ -857,8 +1024,8 @@ function intr_of(c: Carb, k: Name, js = false): Intr | undefined {
   const tld = c.book.tlds[k];
   const it = tld?.$ === "Def" && tld.i === undefined && (tld.b || tld.v === null)
     ? OPERATIONS[eff_name(k)] : undefined;
-  return it !== undefined && (js || it.C !== undefined || it.call === true)
-    ? it : undefined;
+  return it !== undefined && (js ? it.JS !== undefined : !it.soft
+    && (it.C !== undefined || it.call === true)) ? it : undefined;
 }
 
 // Call
@@ -1041,6 +1208,11 @@ function lay_c(k: Kind): string {
 
 function lay_box(lay: Lay): boolean {
   return lay.arms === null && lay.ks[0] === "box";
+}
+
+// A U64 or F64: two w32 halves, low first, that a native reads as a u64.
+function lay_w64(lay: Lay): boolean {
+  return lay.arms !== null && ["U64", "F64"].includes(lay.arms[0].k);
 }
 
 function lay_arm(lay: Lay, k: Name): Arm {
@@ -1228,9 +1400,10 @@ export function io_type(book: Bend.Book): HTerm | null {
 }
 
 // A pure main prints through a descriptor of its type, a node per (type,
-// boxed?): 0 U32, 1 F32, 2 Nat, 3 Char, 4 String, 5 Eql, 6 Array (element,
-// lgs), 7 Data (boxed?, arms; per arm name, cid, fields, bracket, then an
-// (offset, node) per field). Null for an IO main; an unprintable type (a
+// boxed?): 0 U32, 1 F32, 2 Nat, 3 Char (boxed?), 4 String, 5 Eql, 6 Array
+// (element, lgs), 7 Data (boxed?, arms; per arm name, cid, fields, bracket,
+// then an (offset, node) per field), 8 U64 and 9 F64 (boxed?, as Char).
+// Null for an IO main; an unprintable type (a
 // function, a Type, an erased or dependent field) refuses the build.
 function show_main(book: Bend.Book): Show | null {
   const main = book.tlds["main"];
@@ -1253,8 +1426,8 @@ function show_main(book: Bend.Book): Show | null {
     const key = String(box) + Bend.term_key(Bend.term_lower(t));
     const adt = ty_adt(book, t);
     const tld = adt && book.tlds[adt.k];
-    const kind = t.$ === "Eql" ? 5 : "U32 F32 Nat Char String . Array"
-      .split(" ").indexOf(adt?.k ?? "") & 7;
+    const kind = t.$ === "Eql" ? 5 : (("U32 F32 Nat Char String . Array . U64"
+      + " F64").split(" ").indexOf(adt?.k ?? "") + 1 || 8) - 1;
     if (ids.has(key)) {
       return ids.get(key)!;
     }
@@ -1264,7 +1437,7 @@ function show_main(book: Bend.Book): Show | null {
     const id = show.cells.push(kind) - 1;
     ids.set(key, id);
     const refs: [number, HTerm, Lay][] = [];
-    if (kind === 3) {
+    if (kind === 3 || kind > 7) {
       show.cells.push(Number(box));
     } else if (kind === 6) {
       const el = lay_el(book, adt!.x[0]);
@@ -2210,7 +2383,17 @@ function emit_native(fl: File, ck: Call, ers: HTerm[]): string {
   const seg = fl.seg;
   seg.fid = name;
   const dst = val_new(seg.ret.ks.map(() => name_local(fl, "v")), seg.ret);
+  // a soft op's spin runs its C where the lane has a double, else its def
+  const it = tld.b ? OPERATIONS[eff_name(ck.k)] : undefined;
+  if (it?.soft) {
+    file_push(fl, "#ifndef __METAL_VERSION__");
+    emit_put(fl, dst, intr_c(fl, it.C as string, ck.k, vals, seg.ret));
+    file_push(fl, "#else");
+  }
   emit_body(fl, tld.h as HTerm, tld.T, ers, vals, dst);
+  if (it?.soft) {
+    file_push(fl, "#endif");
+  }
   fl.spins.push({ fid: name, refs: seg.refs, text: [`${seg.lines.length < SPIN_FAR ? "INLINE" : "FAR"} Term ${name}(Env e, THR Term* o${
     seg.ks.map((k, i) => `, ${lay_c(k)} r${i}`).join("")}) {`,
   "  u32 wpoll = 0;",
@@ -2243,20 +2426,33 @@ function emit_intr(fl: File, it: Intr, x: HTerm,
   if (it.call === true && it.C === undefined) {
     return arr_op(fl, op, lay_el(fl.book, m.all[0]), args);
   }
-  const ws = args.map((v) => (val_own(fl, v), val_word(v)));
+  const lays = sig_def(fl, k).lays;
+  const vs = args.map((a, i) => lay_w64(lays[i]) ? val_to(fl, a, lays[i]) : a);
+  vs.forEach((v) => val_own(fl, v));
   if (Array.isArray(it.C)) {
-    const as = ws.map((z) => emit_alias(fl, z, "a"));
-    const vs: string[] = [];
+    const as = vs.map((v) => emit_alias(fl, val_word(v), "a"));
+    const os: string[] = [];
     for (const p of it.C) {
-      vs.push(emit_alias(fl, tpl(p, [...as, ...vs]), "a"));
+      os.push(emit_alias(fl, tpl(p, [...as, ...os]), "a"));
     }
-    return val_new(vs, lay_of(fl.book, ty ?? tele_unbind(fl.book,
+    return val_new(os, lay_of(fl.book, ty ?? tele_unbind(fl.book,
       (fl.book.tlds[k] as Bend.Def).T).ret));
   }
-  const C = it.C as string;
+  return intr_c(fl, it.C as string, k, vs, lay_of(fl.book, ty));
+}
+
+// A native's C over values in its parameters' layouts: a U64 or F64 enters
+// as one u64, its halves joined, and leaves as its halves.
+function intr_c(fl: File, C: string, k: Name, vs: Val[], lay: Lay): Val {
+  const { lays, ret } = sig_def(fl, k);
+  const ws = vs.map((v, i) => lay_w64(lays[i]) ? emit_alias(fl,
+    `((u64)${v.ws[1]} << 32 | ${v.ws[0]})`, "a", "w64") : val_word(v));
   const out = tpl(C, /\$(\d)[^]*\$\1/.test(C)
     ? ws.map((a) => emit_alias(fl, a, "a")) : ws);
-  const lay = lay_of(fl.book, ty);
+  if (lay_w64(ret)) {
+    const w = emit_alias(fl, out, "w", "w64");
+    return val_new([`(u32)${w}`, `(${w} >> 32)`], ret);
+  }
   return val_new([out], lay.ks.length === 1 ? lay : BOX);
 }
 
@@ -2367,7 +2563,7 @@ function emit_unfold(fl: File, s: HTerm): HTerm | null {
   const m = term_spine(fl, s);
   const d = m.tld;
   if (m.t.$ !== "Ref" || d?.$ !== "Def" || d.h === undefined
-    || m.all.length !== d.n
+    || m.all.length !== d.n || d.b && OPERATIONS[eff_name(m.t.k)]?.soft
     || intr_of(fl, m.t.k) !== undefined || !flat_of(m.t.k)) {
     return null;
   }
@@ -2658,7 +2854,7 @@ function emit_row(fl: File, t: HTerm, ty: HTerm | null): string | null {
   }
   const m = term_spine(fl, s);
   const it = m.t.$ === "Ref" ? intr_of(fl, m.t.k) : undefined;
-  if (it === undefined || TAB_BAD.test(it.JS)) {
+  if (it?.JS === undefined || TAB_BAD.test(it.JS)) {
     return null;
   }
   const xs = m.args.map((a) => emit_row(fl, a, null));
@@ -5780,9 +5976,9 @@ static void show_chr(u64 c, char q) {
 }
 
 // The shortest text that reads back, as a literal: a point before an e
-static void show_f32(u32 x) {
+static void show_f32(double x, int d) {
   char  buf[40];
-  int   n  = f32_text(buf, f32_unbox(x));
+  int   n  = f32_text(buf, x, d);
   char* ep = memchr(buf, 'e', n);
   int   m  = ep == NULL ? n : (int)(ep - buf);
   buf[n] = 0;
@@ -5802,8 +5998,20 @@ static void show_val(Env e, u32 d, const Term* w, char chain) {
   u32  zn = 0;
   for (bool tail = true; tail;) switch (tail = false, D[d]) {
     case 0: printf("%u", (u32)w[0]); break;
-    case 1: show_f32((u32)w[0]); break;
+    case 1: show_f32(f32_unbox(w[0]), 9); break;
     case 2: printf("%llun", (unsigned long long)w[0]); break;
+    case 8:
+    case 9: {
+      const Term* v = D[d + 1] != 0 ? e.mem + term_peek(e, w[0]) : w;
+      u64 x = v[1] << 32 | (u32)v[0];
+      if (D[d] == 8) {
+        printf("%llu", (unsigned long long)x);
+      } else {
+        show_f32(f64_num(x), 17);
+      }
+      fputs(D[d] == 8 ? "u64" : "f64", stdout);
+      break;
+    }
     case 3:
       putchar('\'');
       show_chr(D[d + 1] != 0 ? term_loc(w[0]) : w[0], '\'');
@@ -6147,6 +6355,9 @@ function show_val(D, N, d, v, chain) {
     : D[d] === 4 ? "\"" + [...v].map((c) =>
       show_chr(c.codePointAt(0), "\"")).join("") + "\""
     : D[d] === 5 ? "{==}"
+    : D[d] === 8 ? v + "u64"
+    : D[d] === 9 ? f32_show(f64_num(v), 17).replace(/^-?\d+(?=e|$)/, "$&.0")
+      + "f64"
     : "[" + v.map((x) => show_val(D, N, D[d + 1], x, 0)).join(", ") + "]";
 }
 
