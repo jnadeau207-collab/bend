@@ -1764,7 +1764,7 @@ def U64.word(a: U64) -> Word(64n):
       Word.cat(32n, 32n, x, y)
 
 def U64.inc(a: U64) -> U64:
-  U64.of(Word.inc(64n, U64.word(a)))
+  U64.add(a, 1u64)
 
 def U64.add(a: U64, b: U64) -> U64:
   U64.of(Word.add(64n, U64.word(a), U64.word(b)))
@@ -1782,7 +1782,7 @@ def U64.mod(a: U64, b: U64) -> U64:
   U64.of(Word.mod(64n, U64.word(a), U64.word(b)))
 
 def U64.not(a: U64) -> U64:
-  U64.of(Word.not(64n, U64.word(a)))
+  U64.xor(a, 18446744073709551615u64)
 
 def U64.and(a: U64, b: U64) -> U64:
   U64.of(Word.and(64n, U64.word(a), U64.word(b)))
@@ -1794,10 +1794,10 @@ def U64.xor(a: U64, b: U64) -> U64:
   U64.of(Word.xor(64n, U64.word(a), U64.word(b)))
 
 def U64.shl(a: U64) -> U64:
-  U64.of(Word.shl(64n, U64.word(a)))
+  U64.shln(a, 1n)
 
 def U64.shr(a: U64) -> U64:
-  U64.of(Word.shr(64n, U64.word(a)))
+  U64.shrn(a, 1n)
 
 def U64.shln(a: U64, n: Nat) -> U64:
   U64.of(Word.shln(Nat.min(n, 64n), 64n, U64.word(a)))

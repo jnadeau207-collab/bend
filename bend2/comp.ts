@@ -225,29 +225,17 @@ const OPERATIONS: Record<string, Intr> = Object.setPrototypeOf({
   ...tpl_ops("u64_", "add:+ sub:- mul:* and:& or:| xor:^", "($0 $o $1)",
     "BigInt.asUintN(64, $0 $o $1)"),
   ...tpl_ops("u64_", CMPS, "($0 $o $1)", "($0 $o $1)"),
-  ...tpl_ops("u64_", "inc:+ shl:<< shr:>>", "($0 $o 1)",
-    "BigInt.asUintN(64, $0 $o 1n)"),
   ...tpl_ops("u64_", "shln:<< shrn:>>", "($1 >= 64 ? 0 : $0 $o $1)",
     "($1 >= 64n ? 0n : BigInt.asUintN(64, $0 $o $1))"),
   u64_div: {
-    C:  "($1 == 0 ? 0 : $0 / $1)",
-    JS: "($1 === 0n ? 0n : $0 / $1)",
+    C:  "($1 ? $0 / $1 : 0)",
+    JS: "($1 ? $0 / $1 : 0n)",
   },
-  u64_mod: {
-    C:  "($1 == 0 ? $0 : $0 % $1)",
-    JS: "($1 === 0n ? $0 : $0 % $1)",
-  },
-  u64_not: {
-    C:  "(~$0)",
-    JS: "BigInt.asUintN(64, ~$0)",
-  },
-  u64_from_nat: {
-    C:  "$0",
-    JS: "$0",
-  },
+  ...tpl_ops("u64_", "mod", "($1 ? $0 % $1 : $0)", "($1 ? $0 % $1 : $0)"),
+  ...tpl_ops("u64_", "from_nat", "$0", "$0"),
   u64_clz: {
     C:  "u64_clz($0)",
-    JS: "($0 === 0n ? 64 : 64 - $0.toString(2).length)",
+    JS: "(64 - $0.toString(2).length + !$0)",
   },
   u64_mul_hi: {
     C:  "u64_mul_hi($0, $1)",
@@ -280,12 +268,12 @@ const OPERATIONS: Record<string, Intr> = Object.setPrototypeOf({
   ...tpl_ops("", "u64_to_f64:(double):Number f32_to_f64:f32_unbox:",
     "f64_of($o($0))", "f64_of($o($0))", true),
   f64_show: {
-    C:    "f64_show(e, $0)",
+    C:    "f32_show(e, $0, 1)",
     call: true,
     JS:   "f32_text(f64_num($0), 17)",
   },
   f64_read: {
-    C:    "f64_read(e, $0)",
+    C:    "f32_read(e, $0, 1)",
     call: true,
     JS:   "f32_read($0, f64_of)",
   },
@@ -316,12 +304,12 @@ const OPERATIONS: Record<string, Intr> = Object.setPrototypeOf({
     JS: "f32_to_bits($0)",
   },
   f32_show: {
-    C:    "f32_show(e, $0)",
+    C:    "f32_show(e, $0, 0)",
     call: true,
     JS:   "f32_text($0)",
   },
   f32_read: {
-    C:    "f32_read(e, $0)",
+    C:    "f32_read(e, $0, 0)",
     call: true,
     JS:   "f32_read($0)",
   },
@@ -523,17 +511,13 @@ INLINE Nat nat_mul(Env e, Nat a, Nat b) {
 
 #if DEVICE
 
-#define f32_show(e, x) (err_post(e.mem, ERR_FIDS), 0)
-#define f32_read(e, s) (err_post(e.mem, ERR_FIDS), 0)
-#define f64_show f32_show
-#define f64_read f32_read
+#define f32_show(e, x, w) (err_post(e.mem, ERR_FIDS), 0)
+#define f32_read(e, s, w) (err_post(e.mem, ERR_FIDS), 0)
 
 #else
 
-static Term f32_show(Env e, Term x);
-static Term f32_read(Env e, Term s);
-static Term f64_show(Env e, Term x);
-static Term f64_read(Env e, Term s);
+static Term f32_show(Env e, Term x, bool w);
+static Term f32_read(Env e, Term s, bool w);
 
 #endif
 `.slice(1),
@@ -573,42 +557,28 @@ static int f32_text(char* buf, double v, int d) {
   return n;
 }
 
-static Term f32_show(Env e, Term x) {
+static Term f32_show(Env e, Term x, bool w) {
   char buf[40];
-  return io_str(e, buf, f32_text(buf, f32_unbox(x), 9));
+  double v = w ? f64_num(x) : f32_unbox(x);
+  return io_str(e, buf, f32_text(buf, v, w ? 17 : 9));
 }
 
-static bool io_real(Env e, Term s, double* v, bool f32) {
+#ifndef CID_F64
+#define CID_F64 0
+#endif
+
+static Term f32_read(Env e, Term s, bool w) {
   u64 n = 0;
   char* text = io_cstr(e, s, &n);
   char* end;
-  *v = f32 ? strtof(text, &end) : strtod(text, &end);
-  bool ok = n > 0 && (u64)(end - text) == n && strpbrk(text, "xX(") == NULL;
-  free(text);
-  return ok;
-}
-
-static Term f32_read(Env e, Term s) {
-  double v;
-  return io_real(e, s, &v, true) ? io_box(e, CID_SOME, f32_rewrap((f32)v))
-    : term_pak(CID_NONE, 0);
-}
-
-static Term f64_show(Env e, Term x) {
-  char buf[40];
-  return io_str(e, buf, f32_text(buf, f64_num(x), 17));
-}
-
-#ifdef CID_F64
-static Term f64_read(Env e, Term s) {
-  double v;
-  if (!io_real(e, s, &v, false)) {
-    return term_pak(CID_NONE, 0);
-  }
+  double v = w ? strtod(text, &end) : strtof(text, &end);
   u64 b = f64_of(v);
-  return io_box(e, CID_SOME, io_node(e, CID_F64, (u32)b, b >> 32));
+  Term out = n > 0 && (u64)(end - text) == n && strpbrk(text, "xX(") == NULL
+    ? io_box(e, CID_SOME, w ? io_node(e, CID_F64, (u32)b, b >> 32)
+    : f32_rewrap((f32)v)) : term_pak(CID_NONE, 0);
+  free(text);
+  return out;
 }
-#endif
 `.slice(1),
   JS: String.raw`
 function word_to_u32(w) {
@@ -645,13 +615,10 @@ function nat_chk(n) {
   return n;
 }
 
-${Bend.f32_text}
-
-${Bend.f32_show}
-
 const F32_VIEW = new DataView(new ArrayBuffer(8));
 
-${[Bend.f32_to_bits, Bend.f32_from_bits, Bend.f64_of, Bend.f64_num].join("\n\n")}
+${[Bend.f32_text, Bend.f32_show, Bend.f32_to_bits, Bend.f32_from_bits,
+  Bend.f64_of, Bend.f64_num].join("\n\n")}
 
 function f32_read(s, f = Math.fround) {
   const re = /^\s*[+-]?((\d+\.?\d*|\.\d+)(e[+-]?\d+)?|inf(inity)?|nan)$/i;
