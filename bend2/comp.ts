@@ -492,6 +492,7 @@ static Term f32_read(Env e, Term s) {
   free(text);
   return out;
 }
+${Num.IO}
 `.slice(1),
   JS: String.raw`
 function word_to_u32(w) {
@@ -2956,7 +2957,7 @@ function compile_reqs(fl: File): void {
 
 // The datatypes whose constructors the runtime or the elaborator lays itself.
 const RUNTIME_ADTS = ["Sigma", "String", "Word.Con", "IO.OP", "Result",
-  "Maybe", "Bool", "Unit"];
+  "Maybe", "Bool", "Unit", "F64"];
 
 // Names the compiler encodes itself: SYNTH no file may declare; OWNED adds
 // Base's types, which a file without `import Base` may declare but not

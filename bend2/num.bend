@@ -184,6 +184,65 @@ def U64.shr_jam(+a: U64, +n: Nat) -> U64:
   +s = U64.shrn(a, n)
   U64.or(s, U64.from_u32(Bool.to_u32(U64.is_ne(U64.shln(s, n), a))))
 
+law U64.show.go:
+  for f   : Nat
+  for +n  : U64
+  for acc : String
+  String
+
+def U64.show.fin(g: Nat, acc: String, +n: U64, z: Bool) -> String:
+  match z:
+    case True{}:
+      acc
+    case False{}:
+      U64.show.go(g, U64.div(n, 10u64),
+        SCon{Chr{U64.lo(U64.add(48u64, U64.mod(n, 10u64)))}, acc})
+
+def U64.show.go(f, n, acc):
+  match f:
+    case 0n:
+      acc
+    case 1n+g:
+      U64.show.fin(g, acc, n, U64.is_zero(n))
+
+def U64.show.if(a: U64, z: Bool) -> String:
+  match z:
+    case True{}:
+      SCon{Chr{48}, SNil{}}
+    case False{}:
+      U64.show.go(20n, a, SNil{})
+
+def U64.show(a: U64) -> String:
+  +b = a
+  U64.show.if(b, U64.is_zero(b))
+
+law U64.read.go:
+  for s   : String
+  for +acc : U64
+  Maybe<&2, U64>
+
+def U64.read.if(t: String, n: U64, ok: Bool) -> Maybe<&2, U64>:
+  match ok:
+    case True{}:
+      U64.read.go(t, n)
+    case False{}:
+      None{}
+
+def U64.read.go(s, acc):
+  match s:
+    case SNil{}:
+      Some{acc}
+    case SCon{Chr{x}, t}:
+      +n = U64.add(U64.mul(acc, 10u64), U64.sub(U64.from_u32(x), 48u64))
+      U64.read.if(t, n, U64.is_eq(U64.div(n, 10u64), acc))
+
+def U64.read(s: String) -> Maybe<&2, U64>:
+  match s:
+    case SNil{}:
+      None{}
+    case SCon{h, t}:
+      U64.read.go(SCon{h, t}, 0u64)
+
 # F64
 # ---
 # an IEEE-754 binary64 held as its bits (F64_CONTRACT.md): storage keeps
@@ -478,3 +537,11 @@ def U64.to_f64(+u: U64) -> F64:
   +t = U64.is_ge(u, 0x8000000000000000u64)
   Bool.pick(F64, U64.is_zero(u), F64.from_bits(u), F64.round(False{},
     U32.add(1084, Bool.to_u32(t)), U64.shr_jam(u, U32.to_nat(Bool.to_u32(t)))))
+
+law F64.show:
+  for +a: F64
+  String
+
+law F64.read:
+  for s: String
+  Maybe<&2, F64>

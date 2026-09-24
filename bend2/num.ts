@@ -86,6 +86,16 @@ export const OPS: Record<string, Op> = {
     C:  "f64_of(sqrt(f64_num($0)))",
     JS: "f64_of(Math.sqrt(f64_num($0)))",
   },
+  f64_show: {
+    C:    "f64_show(e, $0)",
+    call: true,
+    JS:   "f64_show($0)",
+  },
+  f64_read: {
+    C:    "f64_read(e, $0)",
+    call: true,
+    JS:   "f64_read($0)",
+  },
 };
 
 export const C = String.raw`
@@ -106,6 +116,14 @@ INLINE u64 f64_of(double x) {
 }
 #endif
 
+#if DEVICE
+#define f64_show(e, x) (err_post(e.mem, ERR_FIDS), 0)
+#define f64_read(e, s) (err_post(e.mem, ERR_FIDS), 0)
+#else
+static Term f64_show(Env e, Term x);
+static Term f64_read(Env e, Term s);
+#endif
+
 INLINE u64 u64_clz(u64 x) {
   u64 n = 64;
   for (; x != 0; x >>= 1) {
@@ -122,6 +140,25 @@ INLINE u64 u64_mul_hi(u64 a, u64 b) {
   return (a >> 32) * (b >> 32) + (m1 >> 32) + (m2 >> 32);
 }
 
+`.slice(1);
+
+export const IO = String.raw`
+static Term f64_show(Env e, Term x) {
+  char buf[40];
+  return io_str(e, buf, f32_text(buf, f64_num(x), 17));
+}
+
+static Term f64_read(Env e, Term s) {
+  u64 n = 0;
+  char* text = io_cstr(e, s, &n);
+  char* end;
+  u64 v = f64_of(strtod(text, &end));
+  Term out = n > 0 && (u64)(end - text) == n && strpbrk(text, "xX(") == NULL
+    ? io_box(e, CID_SOME, io_node(e, CID_F64, (u32)v, v >> 32))
+    : term_pak(CID_NONE, 0);
+  free(text);
+  return out;
+}
 `.slice(1);
 
 export const JS = String.raw`
@@ -145,6 +182,12 @@ function f64_show(b) {
     s = String(Number(x.toExponential(p - 1)));
   }
   return (Object.is(x, -0) ? "-0" : s).replace("Infinity", "inf");
+}
+
+function f64_read(s) {
+  const re = /^\s*[+-]?((\d+\.?\d*|\.\d+)(e[+-]?\d+)?|inf(inity)?|nan)$/i;
+  const v = Number(s.replace(/inf\w*/i, "Infinity"));
+  return re.test(s) ? {$: "Some", value: f64_of(v)} : {$: "None"};
 }
 
 function word_to_u64(w) {
