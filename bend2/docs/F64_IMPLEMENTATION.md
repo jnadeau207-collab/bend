@@ -111,7 +111,7 @@ Berkeley SoftFloat is an independent oracle. Metal softfloat projects are licens
 
 Favor one small semantic core over four backend-specific algorithms.
 
-**Exit:** host software core matches the declared contract on adversarial vectors.
+**Exit:** host software core matches the declared contract on adversarial vectors. **Done but FMA:** Base's `F64.add/sub/mul/div/sqrt`, the IEEE compares and `U64.to_f64` share one unpack (`F64.m`, `F64.e`), one class lattice and one rounder (`F64.round`); `tests/run/f64_arith.bend` gates them, and off-gate campaigns (random, tie, subnormal-edge and overflow vectors, over 1000 per op) found no mismatch against host doubles. C and JS compile the same core until N5's natives.
 
 ## N5 — C and JS integration
 
