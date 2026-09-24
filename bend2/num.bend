@@ -473,6 +473,233 @@ def F64.add(+a: F64, +b: F64) -> F64:
 def F64.sub(a: F64, b: F64) -> F64:
   F64.add(a, F64.neg(b))
 
+# a * b + c, rounded once: the product's 106 bits and the addend meet in
+# one exact sum (four limbs when they overlap, the larger plus sticky
+# when 107 apart they share no bit), then the one rounder
+def F64.fma.o0(+w1: Bool, +s: U32, +v0: U64) -> U64:
+  Bool.pick(U64, w1, 0u64, U64.shln(v0, U32.to_nat(s)))
+
+def F64.fma.o1(+w1: Bool, +s: U32, +v0: U64, +v1: U64) -> U64:
+  +n = U32.to_nat(s)
+  +t = U32.to_nat(U32.sub(64, s))
+  U64.or(Bool.pick(U64, w1, U64.shln(v0, n), U64.shln(v1, n)),
+    Bool.pick(U64, w1, 0u64, U64.shrn(v0, t)))
+
+def F64.fma.o2(+w1: Bool, +s: U32, +v0: U64, +v1: U64) -> U64:
+  +n = U32.to_nat(s)
+  +t = U32.to_nat(U32.sub(64, s))
+  U64.or(Bool.pick(U64, w1, U64.shln(v1, n), 0u64),
+    Bool.pick(U64, w1, U64.shrn(v0, t), U64.shrn(v1, t)))
+
+def F64.fma.o3(+w1: Bool, +s: U32, +v1: U64) -> U64:
+  Bool.pick(U64, w1, U64.shrn(v1, U32.to_nat(U32.sub(64, s))), 0u64)
+
+# placed P (p3 down to p0) has it over placed C
+def F64.fma.ge(+p3: U64, +p2: U64, +p1: U64, +p0: U64, +c3: U64, +c2: U64,
+  +c1: U64, +c0: U64) -> Bool:
+  Bool.or(U64.is_gt(p3, c3), Bool.and(U64.is_eq(p3, c3),
+    Bool.or(U64.is_gt(p2, c2), Bool.and(U64.is_eq(p2, c2),
+      Bool.or(U64.is_gt(p1, c1), Bool.and(U64.is_eq(p1, c1),
+        U64.is_ge(p0, c0)))))))
+
+# limb 0 of the signed sum: same signs add, else larger less smaller
+def F64.fma.s0(+sub: Bool, +ge: Bool, +p0: U64, +c0: U64) -> U64:
+  Bool.pick(U64, sub, Bool.pick(U64, ge, U64.sub(p0, c0), U64.sub(c0, p0)),
+    U64.add(p0, c0))
+
+# limb 1, carrying limb 0's carry or borrow out
+def F64.fma.s1(+sub: Bool, +ge: Bool, +p1: U64, +c1: U64, +p0: U64,
+  +c0: U64) -> U64:
+  +k = Bool.pick(U64, sub, U64.bit(Bool.pick(Bool, ge, U64.is_lt(p0, c0),
+    U64.is_lt(c0, p0))), U64.bit(U64.is_lt(U64.add(p0, c0), p0)))
+  Bool.pick(U64, sub, Bool.pick(U64, ge, U64.sub(U64.sub(p1, c1), k),
+    U64.sub(U64.sub(c1, p1), k)), U64.add(U64.add(p1, c1), k))
+
+# limb 2, carrying limb 1's out (recomputed: one value leaves a def; a
+# borrow leaves when the minuend is under subtrahend plus carry in)
+def F64.fma.s2(+sub: Bool, +ge: Bool, +p2: U64, +c2: U64, +p1: U64, +c1: U64,
+  +p0: U64, +c0: U64) -> U64:
+  +k1 = Bool.pick(U64, sub, U64.bit(Bool.pick(Bool, ge, U64.is_lt(p0, c0),
+    U64.is_lt(c0, p0))), U64.bit(U64.is_lt(U64.add(p0, c0), p0)))
+  +s = Bool.pick(U64, sub, Bool.pick(U64, ge, U64.sub(U64.sub(p1, c1), k1),
+    U64.sub(U64.sub(c1, p1), k1)), U64.add(U64.add(p1, c1), k1))
+  +m = Bool.pick(U64, sub, Bool.pick(U64, ge, p1, c1), p1)
+  +n = Bool.pick(U64, ge, c1, p1)
+  +k2 = Bool.pick(U64, sub, U64.bit(Bool.or(U64.is_lt(m, n),
+    Bool.and(U64.is_eq(k1, 1u64), U64.is_eq(m, n)))),
+    U64.bit(Bool.or(U64.is_lt(s, m), Bool.and(U64.is_eq(k1, 1u64),
+      U64.is_eq(s, m)))))
+  Bool.pick(U64, sub, Bool.pick(U64, ge, U64.sub(U64.sub(p2, c2), k2),
+    U64.sub(U64.sub(c2, p2), k2)), U64.add(U64.add(p2, c2), k2))
+
+# limb 3, carrying limb 2's out; the sum never leaves four limbs
+def F64.fma.s3(+sub: Bool, +ge: Bool, +p3: U64, +c3: U64, +p2: U64, +c2: U64,
+  +p1: U64, +c1: U64, +p0: U64, +c0: U64) -> U64:
+  +k1 = Bool.pick(U64, sub, U64.bit(Bool.pick(Bool, ge, U64.is_lt(p0, c0),
+    U64.is_lt(c0, p0))), U64.bit(U64.is_lt(U64.add(p0, c0), p0)))
+  +s1 = Bool.pick(U64, sub, Bool.pick(U64, ge, U64.sub(U64.sub(p1, c1), k1),
+    U64.sub(U64.sub(c1, p1), k1)), U64.add(U64.add(p1, c1), k1))
+  +m1 = Bool.pick(U64, sub, Bool.pick(U64, ge, p1, c1), p1)
+  +n1 = Bool.pick(U64, ge, c1, p1)
+  +k2 = Bool.pick(U64, sub, U64.bit(Bool.or(U64.is_lt(m1, n1),
+    Bool.and(U64.is_eq(k1, 1u64), U64.is_eq(m1, n1)))),
+    U64.bit(Bool.or(U64.is_lt(s1, m1), Bool.and(U64.is_eq(k1, 1u64),
+      U64.is_eq(s1, m1)))))
+  +s2 = Bool.pick(U64, sub, Bool.pick(U64, ge, U64.sub(U64.sub(p2, c2), k2),
+    U64.sub(U64.sub(c2, p2), k2)), U64.add(U64.add(p2, c2), k2))
+  +m2 = Bool.pick(U64, sub, Bool.pick(U64, ge, p2, c2), p2)
+  +n2 = Bool.pick(U64, ge, c2, p2)
+  +k3 = Bool.pick(U64, sub, U64.bit(Bool.or(U64.is_lt(m2, n2),
+    Bool.and(U64.is_eq(k2, 1u64), U64.is_eq(m2, n2)))),
+    U64.bit(Bool.or(U64.is_lt(s2, m2), Bool.and(U64.is_eq(k2, 1u64),
+      U64.is_eq(s2, m2)))))
+  Bool.pick(U64, sub, Bool.pick(U64, ge, U64.sub(U64.sub(p3, c3), k3),
+    U64.sub(U64.sub(c3, p3), k3)), U64.add(U64.add(p3, c3), k3))
+
+# a zero sum is +0; else the sum normalized to the top, its top 63 bits
+# and whether anything fell below them to the one rounder
+def F64.fma.norm(+s: Bool, +e0: U32, +a3: U64, +a2: U64, +a1: U64,
+  +a0: U64) -> F64:
+  +z = Bool.and(U64.is_zero(a3), Bool.and(U64.is_zero(a2),
+    Bool.and(U64.is_zero(a1), U64.is_zero(a0))))
+  +lz = Bool.pick(U32, U64.is_zero(a3), Bool.pick(U32, U64.is_zero(a2),
+    Bool.pick(U32, U64.is_zero(a1), U32.add(192, U64.clz(a0)),
+      U32.add(128, U64.clz(a1))), U32.add(64, U64.clz(a2))), U64.clz(a3))
+  F64.fma.at(s, e0, lz, z, a3, a2, a1, a0)
+
+def F64.fma.at(+s: Bool, +e0: U32, +lz: U32, +z: Bool, +a3: U64, +a2: U64,
+  +a1: U64, +a0: U64) -> F64:
+  match z:
+    case True{}:
+      F64.put(0, False{})
+    case False{}:
+      F64.fma.up(s, e0, lz, a3, a2, a1, a0)
+
+# the sum up by lz (its top now bit 255), rounded from its top 63 bits
+# with the rest as sticky, at e0 - 1075 + 255 - lz - 62 + 1084
+def F64.fma.up(+s: Bool, +e0: U32, +lz: U32, +a3: U64, +a2: U64, +a1: U64,
+  +a0: U64) -> F64:
+  +w = U32.shrn(lz, 6n)
+  +n = U32.to_nat(U32.and(lz, 63))
+  +t = U32.to_nat(U32.sub(64, U32.and(lz, 63)))
+  +b3 = F64.fma.sh(w, n, t, a3, a2, a1, a0)
+  +b2 = F64.fma.sh(w, n, t, a2, a1, a0, 0u64)
+  +b1 = F64.fma.sh(w, n, t, a1, a0, 0u64, 0u64)
+  +b0 = F64.fma.sh(w, n, t, a0, 0u64, 0u64, 0u64)
+  +st = Bool.or(Bool.or(U64.is_eq(U64.and(b3, 1u64), 1u64),
+    Bool.not(U64.is_zero(b2))), Bool.or(Bool.not(U64.is_zero(b1)),
+    Bool.not(U64.is_zero(b0))))
+  F64.round(s, U32.sub(U32.add(e0, 202), lz),
+    U64.or(U64.shrn(b3, 1n), U64.bit(st)))
+
+# limb i of the sum up by whole words w and n bits (t its complement)
+def F64.fma.sh(+w: U32, +n: Nat, +t: Nat, +v0: U64, +v1: U64, +v2: U64,
+  +v3: U64) -> U64:
+  +x0 = U64.or(U64.shln(v0, n), U64.shrn(v1, t))
+  +x1 = U64.or(U64.shln(v1, n), U64.shrn(v2, t))
+  +x2 = U64.or(U64.shln(v2, n), U64.shrn(v3, t))
+  +x3 = U64.shln(v3, n)
+  Bool.pick(U64, U32.is_eq(w, 0), x0, Bool.pick(U64, U32.is_eq(w, 1), x1,
+    Bool.pick(U64, U32.is_eq(w, 2), x2, x3)))
+
+# |d| under 107: P and C placed at their offsets in four limbs, combined
+# by sign from limb 0's base exponent
+def F64.fma.wide(+sp: Bool, +sc: Bool, +neg: Bool, +ad: U32, +ma: U64,
+  +mb: U64, +mc: U64, +bp: U32, +ec: U32) -> F64:
+  +wp = Bool.pick(Bool, neg, U32.is_ge(ad, 64), False{})
+  +wc = Bool.pick(Bool, neg, False{}, U32.is_ge(ad, 64))
+  +s = U32.and(ad, 63)
+  +ph = U64.mul_hi(ma, mb)
+  +pl = U64.mul(ma, mb)
+  +p3 = F64.fma.o3(wp, Bool.pick(U32, neg, s, 0), ph)
+  +p2 = F64.fma.o2(wp, Bool.pick(U32, neg, s, 0), pl, ph)
+  +p1 = F64.fma.o1(wp, Bool.pick(U32, neg, s, 0), pl, ph)
+  +p0 = F64.fma.o0(wp, Bool.pick(U32, neg, s, 0), pl)
+  +c3 = F64.fma.o3(wc, Bool.pick(U32, neg, 0, s), 0u64)
+  +c2 = F64.fma.o2(wc, Bool.pick(U32, neg, 0, s), mc, 0u64)
+  +c1 = F64.fma.o1(wc, Bool.pick(U32, neg, 0, s), mc, 0u64)
+  +c0 = F64.fma.o0(wc, Bool.pick(U32, neg, 0, s), mc)
+  +sub = Bool.xor(sp, sc)
+  +ge = F64.fma.ge(p3, p2, p1, p0, c3, c2, c1, c0)
+  +a0 = F64.fma.s0(sub, ge, p0, c0)
+  +a1 = F64.fma.s1(sub, ge, p1, c1, p0, c0)
+  +a2 = F64.fma.s2(sub, ge, p2, c2, p1, c1, p0, c0)
+  +a3 = F64.fma.s3(sub, ge, p3, c3, p2, c2, p1, c1, p0, c0)
+  F64.fma.norm(Bool.pick(Bool, sub, Bool.pick(Bool, ge, sp, sc), sp),
+    Bool.pick(U32, neg, ec, bp), a3, a2, a1, a0)
+
+# |d| at 107: the operands share no bit, so the larger keeps its bits and
+# the smaller (nonzero) is only sticky, taken as the low bit to round
+def F64.fma.far(+sp: Bool, +sc: Bool, +neg: Bool, +ma: U64, +mb: U64,
+  +mc: U64, +bp: U32, +ec: U32) -> F64:
+  match neg:
+    case True{}:
+      +r64 = U64.or(U64.shln(U64.mul_hi(ma, mb), 22n),
+        U64.shrn(U64.mul(ma, mb), 42n))
+      F64.round(sp, U32.add(bp, 52), U64.or(U64.shrn(r64, 1n), 1u64))
+    case False{}:
+      F64.round(sc, U32.sub(ec, 1), U64.or(U64.shln(mc, 10n), 1u64))
+
+# an infinite product of sign sp meets c of class cc and sign sc
+def F64.fma.p_inf(+cc: U32, +sp: Bool, +sc: Bool) -> F64:
+  Bool.pick(F64, Bool.and(U32.is_eq(cc, 2), Bool.xor(sp, sc)), F64.nan(),
+    F64.put(2, sp))
+
+# the exact sum of product and c, both finite and nonzero: d the addend's
+# height over the product (modular, as the rounder reads it), far or wide
+def F64.fma.sum(+sp: Bool, +sc: Bool, +a: F64, +b: F64, +c: F64) -> F64:
+  +bp = U32.sub(U32.add(F64.e(a), F64.e(b)), 1075)
+  +dm = U32.sub(F64.e(c), bp)
+  +neg = U32.is_ge(dm, 2147483648)
+  +ad = Bool.pick(U32, neg, U32.sub(0, dm), dm)
+  +ma = F64.m(a)
+  +mb = F64.m(b)
+  +mc = F64.m(c)
+  +ec = F64.e(c)
+  F64.fma.which(U32.is_ge(ad, 107), sp, sc, neg, ad, ma, mb, mc, bp, ec)
+
+def F64.fma.which(+g: Bool, +sp: Bool, +sc: Bool, +neg: Bool, +ad: U32,
+  +ma: U64, +mb: U64, +mc: U64, +bp: U32, +ec: U32) -> F64:
+  match g:
+    case True{}:
+      F64.fma.far(sp, sc, neg, ma, mb, mc, bp, ec)
+    case False{}:
+      F64.fma.wide(sp, sc, neg, ad, ma, mb, mc, bp, ec)
+
+# classes ca cb cc, product sign sp: one tag (NaN or 0 * inf, a zero
+# product, an infinite product, else c's class past 3), one match
+def F64.fma.ab(+ca: U32, +cb: U32, +cc: U32, +sp: Bool, +sc: Bool, +a: F64,
+  +b: F64, +c: F64) -> F64:
+  +nan = Bool.or(U32.is_eq(ca, 3), Bool.or(U32.is_eq(cb, 3),
+    U32.is_eq(cc, 3)))
+  +zi = Bool.or(Bool.and(U32.is_zero(ca), U32.is_eq(cb, 2)),
+    Bool.and(U32.is_eq(ca, 2), U32.is_zero(cb)))
+  +zp = Bool.or(U32.is_zero(ca), U32.is_zero(cb))
+  +ip = Bool.or(U32.is_eq(ca, 2), U32.is_eq(cb, 2))
+  +t = Bool.pick(U32, Bool.or(nan, zi), 0, Bool.pick(U32, zp, 1,
+    Bool.pick(U32, ip, 2, U32.add(3, cc))))
+  F64.fma.arm(t, cc, sp, sc, a, b, c)
+
+def F64.fma.arm(+t: U32, +cc: U32, +sp: Bool, +sc: Bool, +a: F64, +b: F64,
+  +c: F64) -> F64:
+  match t:
+    case 0:
+      F64.nan()
+    case 1:
+      F64.add(F64.put(0, sp), c)
+    case 2:
+      F64.fma.p_inf(cc, sp, sc)
+    case 3:
+      F64.mul.fin(sp, a, b)
+    case 4:
+      F64.fma.sum(sp, sc, a, b, c)
+    case _:
+      F64.put(2, sc)
+
+def F64.fma(+a: F64, +b: F64, +c: F64) -> F64:
+  F64.fma.ab(F64.cls(a), F64.cls(b), F64.cls(c),
+    Bool.xor(F64.sign(a), F64.sign(b)), F64.sign(c), a, b, c)
+
 # digit by digit: each step brings the next two bits of m into r, 4r + p,
 # and keeps a root bit when 4q + 1 fits; 55 bits, then sticky
 def F64.sqrt.go(n: Nat, +m: U64, +q: U64, +r: U64) -> U64:

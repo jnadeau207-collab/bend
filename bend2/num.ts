@@ -3,7 +3,7 @@
 // The natives of Base's 64-bit numbers (num.bend): a C template over u64
 // and a JS one over BigInt per def, and the runtime helpers they call.
 
-type Op = { C: string; JS: string };
+type Op = { C: string; JS?: string };
 
 const F64_VIEW = new DataView(new ArrayBuffer(8));
 
@@ -38,7 +38,8 @@ export function ops(pre: string, names: string, C: string, JS: string):
 // The natives no lane without a double runs: the compiler spins their
 // def on such a lane and inlines them elsewhere.
 export const SOFT = new Set(("f64_add f64_sub f64_mul f64_div f64_is_eq"
-  + " f64_is_ne f64_is_lt f64_is_le f64_is_gt f64_is_ge f64_sqrt").split(" "));
+  + " f64_is_ne f64_is_lt f64_is_le f64_is_gt f64_is_ge f64_sqrt"
+  + " f64_fma").split(" "));
 
 export const OPS: Record<string, Op> = {
   ...ops("u64_", "add:+ sub:- mul:* and:& or:| xor:^", "($0 $o $1)",
@@ -72,6 +73,10 @@ export const OPS: Record<string, Op> = {
   f64_sqrt: {
     C:  "f64_of(sqrt(f64_num($0)))",
     JS: "f64_of(Math.sqrt(f64_num($0)))",
+  },
+  // no JS: the lane without an fma runs the def
+  f64_fma: {
+    C: "f64_of(fma(f64_num($0), f64_num($1), f64_num($2)))",
   },
   f64_show: {
     C:    "f64_show(e, $0)",

@@ -131,7 +131,7 @@ type Call = {
 type Intr = {
   C?: string | string[];
   call?: boolean;
-  JS: string;
+  JS?: string;
 };
 
 type Dom = [Bend.Quant, Name, HTerm];
@@ -869,7 +869,11 @@ function intr_of(c: Carb, k: Name, js = false): Intr | undefined {
   if (it === undefined || c.metal !== 0 && Num.SOFT.has(eff_name(k))) {
     return undefined;
   }
-  return js || it.C !== undefined || it.call === true ? it : undefined;
+  // A lane without a template for the op runs its def.
+  if (js ? it.JS === undefined : it.C === undefined && it.call !== true) {
+    return undefined;
+  }
+  return it;
 }
 
 // Call
@@ -2748,7 +2752,7 @@ function emit_row(fl: File, t: HTerm, ty: HTerm | null): string | null {
   }
   const m = term_spine(fl, s);
   const it = m.t.$ === "Ref" ? intr_of(fl, m.t.k) : undefined;
-  if (it === undefined || TAB_BAD.test(it.JS)) {
+  if (it === undefined || it.JS === undefined || TAB_BAD.test(it.JS)) {
     return null;
   }
   const xs = m.args.map((a) => emit_row(fl, a, null));
