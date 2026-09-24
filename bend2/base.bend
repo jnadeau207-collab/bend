@@ -1470,16 +1470,8 @@ def U32.from_nat(n: Nat) -> U32:
     case 1n+p:
       U32.inc(U32.from_nat(p))
 
-def U32.log2.go(+k: Nat, +n: U32, +d: Nat) -> Nat:
-  match k:
-    case 0n:
-      d
-    case 1n+p:
-      U32.log2.go(p, U32.shr(n),
-        Nat.add(d, U32.to_nat(Bool.to_u32(U32.is_lt(1, n)))))
-
-def U32.log2(+n: U32) -> Nat:
-  U32.log2.go(32n, n, 0n)
+def U32.log2(n: U32) -> Nat:
+  Nat.sub(63n, U32.to_nat(U64.clz(U32.to_u64(n))))
 
 def U32.div(a: U32, b: U32) -> U32:
   match a b:
