@@ -796,8 +796,8 @@ def F64.to_f32.at(+c: U32, +s: Bool, +a: F64) -> F32:
     case _:
       F64.to_f32.fin(s, F64.m(a), F64.e(a))
 
-# the 53-bit significand rounded to 24, ties to even (a carry
-# renormalizes), packed at its f32 exponent e - 896 plus the carry
+# a normal rounds the 53-bit significand to 24, ties to even (a carry
+# renormalizes); its f32 exponent is e - 896 plus the carry
 def F64.to_f32.fin(+s: Bool, +m: U64, +e: U32) -> F32:
   +q = U64.shrn(m, 29n)
   +rem = U64.and(m, 0x1FFFFFFFu64)
@@ -807,28 +807,29 @@ def F64.to_f32.fin(+s: Bool, +m: U64, +e: U32) -> F32:
   +r = U64.add(q, U64.bit(Bool.and(rb, Bool.or(st, odd))))
   +cy = U64.is_ge(r, 0x1000000u64)
   +q24 = Bool.pick(U64, cy, U64.shrn(r, 1n), r)
-  F64.to_f32.pk(s, U32.add(U32.sub(e, 896), Bool.to_u32(cy)), q24)
+  F64.to_f32.pk(s, U32.sub(e, 896), cy, q24, m)
 
-# packed at be (modular, as the rounder reads it): subnormal, infinite,
-# or the sign, exponent and 23 fraction bits
-def F64.to_f32.pk(+s: Bool, +be: U32, +q24: U64) -> F32:
+# packed at be0 + cy (modular, as the rounder reads it): subnormal,
+# infinite, or the sign, exponent and 23 fraction bits
+def F64.to_f32.pk(+s: Bool, +be0: U32, +cy: Bool, +q24: U64, +m: U64) -> F32:
+  +be = U32.add(be0, Bool.to_u32(cy))
   +neg = U32.is_ge(be, 2147483648)
   +ov = U32.is_ge(be, 255)
-  Bool.pick(F32, Bool.or(neg, U32.is_zero(be)), F64.to_f32.sub(s, be, q24),
+  Bool.pick(F32, Bool.or(neg, U32.is_zero(be)), F64.to_f32.sub(s, be0, m),
     Bool.pick(F32, ov, F32.from_bits(U32.or(U32.shln(Bool.to_u32(s), 31n),
       0x7F800000)), F32.from_bits(U32.or(U32.or(U32.shln(Bool.to_u32(s), 31n),
       U32.shln(be, 23n)), U64.lo(U64.and(q24, 0x7FFFFFu64))))))
 
-# a subnormal: q24 down by 1 - be with its own round bit and sticky (a
+# a subnormal: m down by 30 - be0 with its own round bit and sticky (a
 # carry out is the smallest normal)
-def F64.to_f32.sub(+s: Bool, +be: U32, +q24: U64) -> F32:
-  +sh = U32.sub(1, be)
-  +shn = U32.to_nat(sh)
-  +g = U64.and(U64.shrn(q24, U32.to_nat(U32.sub(sh, 1))), 1u64)
-  +rs = U64.is_ne(U64.and(q24, U64.sub(U64.shln(1u64,
-    U32.to_nat(U32.sub(sh, 1))), 1u64)), 0u64)
-  +e0 = U64.and(U64.shrn(q24, shn), 1u64)
-  +sig = U64.add(U64.shrn(q24, shn), U64.bit(Bool.and(U64.is_ne(g, 0u64),
+def F64.to_f32.sub(+s: Bool, +be0: U32, +m: U64) -> F32:
+  +p = U32.add(U32.sub(1, be0), 29)
+  +pn = U32.to_nat(p)
+  +g = U64.and(U64.shrn(m, U32.to_nat(U32.sub(p, 1))), 1u64)
+  +rs = U64.is_ne(U64.and(m, U64.sub(U64.shln(1u64,
+    U32.to_nat(U32.sub(p, 1))), 1u64)), 0u64)
+  +e0 = U64.and(U64.shrn(m, pn), 1u64)
+  +sig = U64.add(U64.shrn(m, pn), U64.bit(Bool.and(U64.is_ne(g, 0u64),
     Bool.or(rs, U64.is_ne(e0, 0u64)))))
   Bool.pick(F32, U64.is_ge(sig, 0x800000u64),
     F32.from_bits(U32.or(U32.shln(Bool.to_u32(s), 31n), 0x800000)),
