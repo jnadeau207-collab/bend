@@ -313,7 +313,7 @@ const OPERATIONS: Record<string, Intr> = Object.setPrototypeOf({
   },
   f32_bits: {
     C:  "$0",
-    JS: "f32_bits($0)",
+    JS: "f32_to_bits($0)",
   },
   f32_show: {
     C:    "f32_show(e, $0)",
@@ -649,25 +649,9 @@ ${Bend.f32_text}
 
 ${Bend.f32_show}
 
-const F64_VIEW = new DataView(new ArrayBuffer(8));
+const F32_VIEW = new DataView(new ArrayBuffer(8));
 
-function f64_num(x) {
-  F64_VIEW.setBigUint64(0, x);
-  return F64_VIEW.getFloat64(0);
-}
-
-function f64_of(x) {
-  F64_VIEW.setFloat64(0, x);
-  return x !== x ? 0x7FF8000000000000n : F64_VIEW.getBigUint64(0);
-}
-
-function f32_bits(x) {
-  return new Uint32Array(new Float32Array([x]).buffer)[0];
-}
-
-function f32_from_bits(u) {
-  return new Float32Array(new Uint32Array([u]).buffer)[0];
-}
+${[Bend.f32_to_bits, Bend.f32_from_bits, Bend.f64_of, Bend.f64_num].join("\n\n")}
 
 function f32_read(s, f = Math.fround) {
   const re = /^\s*[+-]?((\d+\.?\d*|\.\d+)(e[+-]?\d+)?|inf(inity)?|nan)$/i;
@@ -2796,7 +2780,7 @@ function emit_fork(fl: File, x: HLet, ers: HTerm[]): void {
 }
 
 // A row is JS text; a C-lane F32 row is its bits (a NaN payload has no JS
-// number): a constant's own, an intrinsic's through f32_bits.
+// number): a constant's own, an intrinsic's through f32_to_bits.
 function emit_row(fl: File, t: HTerm, ty: HTerm | null): string | null {
   const k = ty_adt(fl.book, ty)?.k ?? "";
   if (ty !== null && WORDS[k] === undefined) {
@@ -2818,7 +2802,7 @@ function emit_row(fl: File, t: HTerm, ty: HTerm | null): string | null {
   }
   const xs = m.args.map((a) => emit_row(fl, a, null));
   const r = xs.includes(null) ? null : tpl(it.JS, xs as string[]);
-  return r !== null && bits ? `f32_bits(${r})` : r;
+  return r !== null && bits ? `f32_to_bits(${r})` : r;
 }
 
 // The table a match reads at `s`, when it has rows and every row is a
@@ -2829,7 +2813,7 @@ function emit_tab(fl: File, rows: Chain | null, ty: HTerm,
   if (rows === null || ls.includes(null)) {
     return null;
   }
-  const key = fl.js ? ls.join(", ") : Function("f32_bits",
+  const key = fl.js ? ls.join(", ") : Function("f32_to_bits",
     "return [" + ls + "]")(Bend.f32_to_bits).map((v: number) => BigInt(v)
     + "ull").join(", ");
   const tab = "TAB_" + memo(fl.tabs, key, () => fl.tabs.size);
@@ -3386,7 +3370,7 @@ function js_match(fl: File, x: HTerm, ty: HTerm | null,
       n === null ? [] : [`(${s} - ${n}n)`]]);
   } else if (ws !== null) {
     // the word at depth j, or its bit there and the tail
-    const bits = adt.k === "F32" ? `f32_bits(${s})` : s;
+    const bits = adt.k === "F32" ? `f32_to_bits(${s})` : s;
     const wd = (j: number): string =>
       `u32_to_word(${bits})` + "[\"tail\"]".repeat(j);
     lv = ws.map(([h, j, n, e]) => [lits_cond(bits, j, n), h, e === 1

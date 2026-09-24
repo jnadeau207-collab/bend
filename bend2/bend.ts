@@ -1250,12 +1250,12 @@ export function f32_from_bits(n: U32): number {
   return F32_VIEW.getFloat32(0);
 }
 
-export function f64_to_bits(v: number): bigint {
+export function f64_of(v: number): bigint {
   F32_VIEW.setFloat64(0, v);
-  return F32_VIEW.getBigUint64(0);
+  return v !== v ? 0x7FF8000000000000n : F32_VIEW.getBigUint64(0);
 }
 
-export function f64_from_bits(n: bigint): number {
+export function f64_num(n: bigint): number {
   F32_VIEW.setBigUint64(0, n);
   return F32_VIEW.getFloat64(0);
 }
@@ -1468,7 +1468,7 @@ export function term_show(term: LTerm, top: number = -1, bnd: Name[] = []): stri
         const arr = term_show_sugar_arr(tm);
         const sug = u32 !== null ? String(u32) : f32 !== null ? f32_show(f32_from_bits(f32))
                  : u64 !== null ? u64 + "u64"
-                 : f64 !== null ? f32_show(f64_from_bits(f64), 17) + "f64"
+                 : f64 !== null ? f32_show(f64_num(f64), 17) + "f64"
                  : term_show_sugar_nat(tm, prc)
                  ?? (chr !== null ? "'" + chr + "'" : null)
                  ?? term_show_sugar_str(tm)
@@ -2302,7 +2302,7 @@ export function parse_term_num(p: Parse): LTerm {
   if (m[4] !== undefined) {
     const f = m[4] === "f64";
     const v = Number(m[0].slice(0, -3));
-    const x = f ? f64_to_bits(v) : m[2] === undefined ? BigInt(s) : 1n << 64n;
+    const x = f ? f64_of(v) : m[2] === undefined ? BigInt(s) : 1n << 64n;
     if (x >> 64n || !isFinite(v) || m[2] === "n" || char_is_name(parse_peek(p))) {
       parse_fail(p, "a " + m[4] + " literal: a finite f64, or a u64 up to"
         + " 18446744073709551615 (got " + m[0] + ")");
