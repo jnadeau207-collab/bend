@@ -403,10 +403,8 @@ const OPTIMIZED: Record<Name, Native> = Object.setPrototypeOf({
     Chr: {
       intr: ([c]: string[]) => {
         const n = Number(c);
-        return /^\d+$/.test(c)
-          && (n < 0xd800 || n >= 0xe000 && n <= 0x10ffff)
-          ? JSON.stringify(String.fromCodePoint(n))
-          : "char_new(" + c + ")";
+        return /^\d+$/.test(c) && Bend.chr_ok(n)
+          ? JSON.stringify(String.fromCodePoint(n)) : "char_new(" + c + ")";
       },
       elim: ["$0.codePointAt(0)"],
     },
@@ -626,8 +624,10 @@ function f32_read(s, f = Math.fround) {
   return re.test(s) ? {$: "Some", value: f(v)} : {$: "None"};
 }
 
+${Bend.chr_ok}
+
 function char_new(code) {
-  if (code > 0x10FFFF || (code >= 0xD800 && code <= 0xDFFF)) {
+  if (!chr_ok(code)) {
     throw "bend: " + code + " is not a Unicode scalar value";
   }
   return String.fromCodePoint(code);

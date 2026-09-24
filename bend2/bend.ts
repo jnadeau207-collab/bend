@@ -1162,8 +1162,12 @@ export function word_to_term<X>(n: U32, s?: Span): TermOf<X> {
 // Unicode scalar values only, so a literal that spells a surrogate or a
 // code point past U+10FFFF is its chain.
 
+export function chr_ok(c: number): boolean {
+  return c <= 0x10ffff && (c < 0xd800 || c > 0xdfff);
+}
+
 export function lit_of(cs: U32[], s?: Span): LTerm {
-  if (cs.every((c) => c <= 0x10ffff && (c < 0xd800 || c > 0xdfff))) {
+  if (cs.every(chr_ok)) {
     return Lit("String", cs.map((c) => String.fromCodePoint(c)).join(""), s);
   }
   return cs.reduceRight<LTerm>((out, c) =>
@@ -1291,7 +1295,7 @@ export function chr_show(n: U32, quote: string): string {
   if (k !== undefined) {
     return "\\" + k;
   }
-  if (n < 32 || n === 127 || (n >= 0xd800 && n <= 0xdfff) || n > 0x10ffff) {
+  if (n < 32 || n === 127 || !chr_ok(n)) {
     return "\\u{" + n.toString(16) + "}";
   }
   return String.fromCodePoint(n);
