@@ -158,14 +158,11 @@ function f64_of(x) {
   return x !== x ? 0x7FF8000000000000n : F64_VIEW.getBigUint64(0);
 }
 
-// the shortest decimal that reads back, as term_show spells it
+// the shortest decimal that reads back, as f32_text spells it
 function f64_show(b) {
   const x = f64_num(b);
-  let s = "nan";
-  for (let p = 1; x === x && p <= 17 && Number(s) !== x; p += 1) {
-    s = String(Number(x.toExponential(p - 1)));
-  }
-  return (Object.is(x, -0) ? "-0" : s).replace("Infinity", "inf");
+  if (x !== x) return "nan";
+  return (Object.is(x, -0) ? "-0" : String(x)).replace("Infinity", "inf");
 }
 
 function f64_read(s) {
