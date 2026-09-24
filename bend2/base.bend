@@ -457,24 +457,12 @@ def Bool.cmp(a: Bool, b: Bool) -> Cmp:
     case True{} True{}:
       EQ{}
 
-def Bool.full_add(a: Bool, b: Bool, c: Bool) -> Bool & Bool:
-  match a b c:
-    case False{} False{} False{}:
-      (False{}, False{})
-    case False{} False{} True{}:
-      (True{}, False{})
-    case False{} True{} False{}:
-      (True{}, False{})
-    case False{} True{} True{}:
-      (False{}, True{})
-    case True{} False{} False{}:
-      (True{}, False{})
-    case True{} False{} True{}:
-      (False{}, True{})
-    case True{} True{} False{}:
-      (False{}, True{})
-    case True{} True{} True{}:
-      (True{}, True{})
+def Bool.full_add(a: Bool, +b: Bool, +c: Bool) -> Bool & Bool:
+  match a:
+    case False{}:
+      (Bool.xor(b, c), Bool.and(b, c))
+    case True{}:
+      (Bool.not(Bool.xor(b, c)), Bool.or(b, c))
 
 def Bool.pick(-A: Type, c: Bool, a: A, b: A) -> A:
   match c:
@@ -547,9 +535,7 @@ def Nat.add(a: Nat, b: Nat) -> Nat:
 
 def Nat.sub(a: Nat, b: Nat) -> Nat:
   match a b:
-    case 0n 0n:
-      0n
-    case 0n 1n+bp:
+    case 0n _:
       0n
     case 1n+ap 0n:
       1n+ap
@@ -2882,9 +2868,7 @@ def Map.diff.fin(xt: String, yt: String, rc: Nat & Bool) -> Nat:
 
 def Map.diff(a, b):
   match a b:
-    case SNil{} SNil{}:
-      0n
-    case SNil{} SCon{h, t}:
+    case SNil{} _:
       0n
     case SCon{h, t} SNil{}:
       0n
@@ -3018,11 +3002,9 @@ def Map.set.fin.go(
 ) -> Map<a, V>:
   ((keyb2, k2), c) = r
   match c:
-    case LT{}:
-      Map.ins(a, V, m, key, x, Map.diff(keyb2, k2))
     case EQ{}:
       Map.put(a, V, m, key, x)
-    case GT{}:
+    case o:
       Map.ins(a, V, m, key, x, Map.diff(keyb2, k2))
 
 def Map.set.fin(
@@ -3079,11 +3061,9 @@ def Map.get.leaf(-V: Data, d: V, +v: V, r: (String & String) & Cmp) ->
   Map<&2, V> & V:
   ((key2, k2), c) = r
   match c:
-    case LT{}:
-      (MLeaf{k2, v}, d)
     case EQ{}:
       (MLeaf{k2, v}, v)
-    case GT{}:
+    case o:
       (MLeaf{k2, v}, d)
 
 law Map.get:
@@ -3136,11 +3116,9 @@ def Map.pop.leaf(a, -V: Kind(a), v: V, r: (String & String) & Cmp) ->
   Map<a, V> & Maybe<a, V>:
   ((key2, k2), c) = r
   match c:
-    case LT{}:
-      (MLeaf{k2, v}, None{})
     case EQ{}:
       (MTip{}, Some{v})
-    case GT{}:
+    case o:
       (MLeaf{k2, v}, None{})
 
 law Map.pop:
