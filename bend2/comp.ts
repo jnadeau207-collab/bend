@@ -115,7 +115,7 @@ type UMap = Bend.PMap<number>;
 
 type Chain = [HTerm, number | null][];
 
-type Leaf = [HTerm, number, number, number];
+type Leaf = [HTerm, number, bigint, number];
 
 type Call = {
   k: Name;
@@ -161,6 +161,11 @@ const W64: Lay = { ks: ["w64"], arms: null };
 
 const WORDS: Record<string, Lay> = Object.setPrototypeOf(
   { U32: W32, F32: W32, Nat: W64 }, null);
+
+// A 64-bit word lies as two w32 halves, low first: every word it stores is
+// under 2^32, so no bit pattern it holds reads as a runtime Term.
+const HALF: Record<string, Lay> = Object.setPrototypeOf(Object.fromEntries(
+  ["U64", "F64"].map((k) => [k, lay_pack([[k, [W32, W32]]])])), null);
 
 // The widest flat layout (u8 arity tables); the shader's Tri is 24 words.
 const WIDE = 255;
@@ -221,6 +226,30 @@ const OPERATIONS: Record<string, Intr> = Object.setPrototypeOf({
     C:  "((u64)(u32)($0))",
     JS: "Number($0 & 0xFFFFFFFFn)",
   },
+  ...tpl_ops("u64_", "add:+ sub:- mul:* and:& or:| xor:^", "($0 $o $1)",
+    "BigInt.asUintN(64, $0 $o $1)"),
+  ...tpl_ops("u64_", CMPS, "((u64)($0 $o $1))", "($0 $o $1)"),
+  ...tpl_ops("u64_", "inc:+ shl:<< shr:>>", "($0 $o 1)",
+    "BigInt.asUintN(64, $0 $o 1n)"),
+  ...tpl_ops("u64_", "shln:<< shrn:>>", "($1 >= 64 ? 0 : $0 $o $1)",
+    "($1 >= 64n ? 0n : BigInt.asUintN(64, $0 $o $1))"),
+  ...Object.fromEntries([
+    ["div", "($1 == 0 ? 0 : $0 / $1)", "($1 === 0n ? 0n : $0 / $1)"],
+    ["mod", "($1 == 0 ? $0 : $0 % $1)", "($1 === 0n ? $0 : $0 % $1)"],
+    ["shr_jam", "($1 >= 64 ? (u64)($0 != 0)"
+      + " : $0 >> $1 | (u64)(($0 & ((1ull << $1) - 1)) != 0))",
+    "($1 >= 64n ? BigInt($0 !== 0n)"
+      + " : $0 >> $1 | BigInt(($0 & ((1n << $1) - 1n)) !== 0n))"],
+    ["not", "(~$0)", "BigInt.asUintN(64, ~$0)"],
+    ["cmp", "(($0 > $1) + ($0 >= $1))", "cmp_new($0, $1)"],
+    ["join", "((u64)(u32)$1 << 32 | (u32)$0)",
+      "(BigInt($1) << 32n | BigInt($0))"],
+    ["lo", "((u64)(u32)$0)", "Number(BigInt.asUintN(32, $0))"],
+    ["hi", "($0 >> 32)", "Number($0 >> 32n)"],
+    ["clz", "u64_clz($0)", "(64 - $0.toString(2).length + ($0 === 0n))"],
+    ["mul_hi", "u64_mul_hi($0, $1)", "(($0 * $1) >> 64n)"],
+  ].map(([k, C, JS]) => ["u64_" + k, { C, JS }])),
+  ...tpl_ops("f64_", "bits from_bits", "$0", "$0"),
   ...tpl_ops("f32_", "add:+ sub:- mul:* div:/",
     "f32_rewrap(f32_unbox($0) $o f32_unbox($1))", "Math.fround($0 $o $1)"),
   f32_neg: {
@@ -336,6 +365,8 @@ const OPTIMIZED: Record<Name, Native> = Object.setPrototypeOf({
   F32: {
     F32: { intr: "f32_from_bits(word_to_u32($0))" },
   },
+  ...Object.fromEntries(["U64", "F64"].map((k) =>
+    [k, { [k]: { intr: "word_to_u64($0)" } }])),
   Char: {
     Chr: {
       intr: ([c]: string[]) => {
@@ -395,6 +426,25 @@ ${SHIMS}
 // its half, then fix the odd bit.
 #define U32_QUO(a, b) \
   ((a) / 2 / (b) * 2 + ((a) - (a) / 2 / (b) * 2 * (b) >= (b)))
+
+INLINE u64 u64_clz(u64 x) {
+  u64 n = x == 0;
+  for (u32 s = 32; s > 0; s >>= 1) {
+    if (x >> (64 - s) == 0) {
+      n += s;
+      x <<= s;
+    }
+  }
+  return n;
+}
+
+// the high half of a 128-bit product, over 32-bit partial products
+INLINE u64 u64_mul_hi(u64 a, u64 b) {
+  u64 lo = (a & 0xFFFFFFFF) * (b & 0xFFFFFFFF);
+  u64 m1 = (a >> 32) * (b & 0xFFFFFFFF) + (lo >> 32);
+  u64 m2 = (a & 0xFFFFFFFF) * (b >> 32) + (m1 & 0xFFFFFFFF);
+  return (a >> 32) * (b >> 32) + (m1 >> 32) + (m2 >> 32);
+}
 
 INLINE f32 f32_unbox(u64 x) {
   union { u32 u; f32 f; } p = { (u32)x };
@@ -496,6 +546,23 @@ function u32_to_word(x) {
   let w = {$: "WNil"};
   for (let i = 31; i >= 0; i--) {
     w = {$: "WCon", head: ((x >>> i) & 1) === 1, tail: w};
+  }
+  return w;
+}
+
+function word_to_u64(w) {
+  let x = 0n;
+  for (let i = 0n; w.$ === "WCon"; i++) {
+    x |= BigInt(w.head) << i;
+    w = w.tail;
+  }
+  return x;
+}
+
+function u64_to_word(x) {
+  let w = {$: "WNil"};
+  for (let i = 63n; i >= 0n; i--) {
+    w = {$: "WCon", head: (x >> i & 1n) === 1n, tail: w};
   }
   return w;
 }
@@ -956,7 +1023,7 @@ function lay_of(book: Bend.Book, A: HTerm | null): Lay {
     return BOX;
   }
   const key = Bend.term_key(Bend.term_lower(t));
-  return WORDS[t.k] ?? memo(LAYS, key, () => {
+  return WORDS[t.k] ?? HALF[t.k] ?? memo(LAYS, key, () => {
     const tld = book.tlds[t.k];
     if (t.k === "Array" || t.k === "IO.OP" || tld?.$ !== "ADT"
       || lay_cyclic(book, t.k)) {
@@ -1027,8 +1094,18 @@ function lay_cyclic(book: Bend.Book, k: Name): boolean {
 }
 
 function lay_node(book: Bend.Book, k: Name): Lay {
-  return memo(NODES, k, () => lay_pack([[k, lay_wide((book.ctrs[k]
-    ? ctr_doms(book, book.ctrs[k]) : []).map((A) => lay_of(book, A)))]]));
+  return HALF[k] ?? memo(NODES, k, () => lay_bits(book, k));
+}
+
+// A constructor's node over its fields' own layouts (a word's: its bits).
+function lay_bits(book: Bend.Book, k: Name): Lay {
+  return lay_pack([[k, lay_wide((book.ctrs[k]
+    ? ctr_doms(book, book.ctrs[k]) : []).map((A) => lay_of(book, A)))]]);
+}
+
+// A word type's width in bits: 0 for any other type.
+function word_bits(k: Name): number {
+  return WORDS[k] === W32 ? 32 : HALF[k] ? 64 : 0;
 }
 
 function lay_eq(a: Lay, b: Lay): boolean {
@@ -1056,14 +1133,15 @@ function lay_arr(lay: Lay): { arr: boolean; lgs: number } {
 // ===
 
 function ctr_adt(fl: File, x: Of<"Ctr">,
-  ty: HTerm | null): [HAdt, number | null] {
+  ty: HTerm | null): [HAdt, bigint | null] {
   const ctr = fl.book.ctrs[x.k];
   const adt = adt_of(fl.book, ty ?? (ctr ? tele_unbind(fl.book, ctr.T).ret
     : null));
   if (ty === null && adt.x.length > 0) {
     die("a constructor outside a datatype");
   }
-  return [adt, adt.k === "U32" || adt.k === "F32" ? Bend.u32_from_term(x, adt.k) : null];
+  const n = word_bits(adt.k);
+  return [adt, n > 0 ? Bend.word_from_term(x, adt.k, n) : null];
 }
 
 // A constructor's fields: the last n domains of its type, over the
@@ -1246,7 +1324,7 @@ function show_main(book: Bend.Book): Show | null {
   const ids = new Map<string, number>();
   const refuse = (): never => die("main's type " + Bend.term_show(
     Bend.term_lower(main.T)) + " cannot be printed (a function, a Type, an"
-    + " erased or dependent field)");
+    + " erased or dependent field, a 64-bit word)");
   const node = (T: HTerm, lay: Lay): number => {
     const t = ty_wnf(book, T) as HTerm;
     const box = lay_box(lay);
@@ -1258,7 +1336,8 @@ function show_main(book: Bend.Book): Show | null {
     if (ids.has(key)) {
       return ids.get(key)!;
     }
-    if (kind !== 5 && (adt === null || adt.k === "IO.OP" || tld?.$ !== "ADT")) {
+    if (kind !== 5 && (adt === null || adt.k === "IO.OP" || tld?.$ !== "ADT"
+      || HALF[adt.k])) {
       return refuse();
     }
     const id = show.cells.push(kind) - 1;
@@ -2243,7 +2322,12 @@ function emit_intr(fl: File, it: Intr, x: HTerm,
   if (it.call === true && it.C === undefined) {
     return arr_op(fl, op, lay_el(fl.book, m.all[0]), args);
   }
-  const ws = args.map((v) => (val_own(fl, v), val_word(v)));
+  // each argument in its parameter's layout; a 64-bit word enters joined
+  const lays = sig_def(fl, k).lays;
+  const ws = args.map((a, i) => val_to(fl, a, lays[i])).map((v) =>
+    (val_own(fl, v), v.ws.length === 2
+    && HALF[v.lay.arms?.[0]?.k ?? ""] === v.lay ? emit_alias(fl,
+      `((u64)${v.ws[1]} << 32 | ${v.ws[0]})`, "a", "w64") : val_word(v)));
   if (Array.isArray(it.C)) {
     const as = ws.map((z) => emit_alias(fl, z, "a"));
     const vs: string[] = [];
@@ -2256,7 +2340,11 @@ function emit_intr(fl: File, it: Intr, x: HTerm,
   const C = it.C as string;
   const out = tpl(C, /\$(\d)[^]*\$\1/.test(C)
     ? ws.map((a) => emit_alias(fl, a, "a")) : ws);
-  const lay = lay_of(fl.book, ty);
+  const lay = sig_def(fl, k).ret;
+  if (lay.ks.length === 2 && HALF[lay.arms![0].k] === lay) {
+    const w = emit_alias(fl, out, "w", "w64");
+    return val_new([`(u32)${w}`, `(${w} >> 32)`], lay);
+  }
   return val_new([out], lay.ks.length === 1 ? lay : BOX);
 }
 
@@ -2280,27 +2368,41 @@ function emit_clo(fl: File, x: HTerm, ty: HTerm | null): Val {
   return val_new([clo], BOX);
 }
 
+// A word's bits, low first, packed in one word.
+function word_pack(ws: string[]): string {
+  return `(${ws.map((w, i) => `((u64)${w} << ${i})`).join(" | ")})`;
+}
+
 function emit_ctr(fl: File, x: Of<"Ctr">, ty: HTerm | null,
   at: Lay | null): Val {
   const [adt, u] = ctr_adt(fl, x, ty);
+  const half = HALF[adt.k];
   if (u !== null) {
-    return val_new([`${u}ull`], W32, true);
+    return val_new((half ?? W32).ks.map((_, i) =>
+      `${u >> BigInt(32 * i) & 0xFFFFFFFFn}ull`), half ?? W32, true);
   }
   const flds = ctr_flds(fl.book, x.k, x.x);
   // A word type's constructor is its word: a Word's bits packed, a box
-  // read, Succ one more (checked), Zero 0.
+  // read, Succ one more (checked), Zero 0; a 64-bit word's, cut in halves.
+  if (half !== undefined) {
+    const v = emit_each(fl, flds, null)[0];
+    if (v.ws.length > 1) {
+      return val_new([v.ws.slice(0, 32), v.ws.slice(32)].map(word_pack), half);
+    }
+    const w = emit_alias(fl, `term_word(e, ${val_word(v)}, 64)`, "w", "w64");
+    return val_new([`(u32)${w}`, `(${w} >> 32)`], half);
+  }
   if (WORDS[adt.k] !== undefined) {
     const vs = emit_each(fl, flds, null);
     const lay = WORDS[adt.k];
     if (vs.length === 1 && vs[0].ws.length > 1) {
-      return val_new([`(${vs[0].ws.map((w, i) => `((u64)${w} << ${i})`)
-        .join(" | ")})`], lay);
+      return val_new([word_pack(vs[0].ws)], lay);
     }
     if (vs.length === 0) {
       return val_new(["0"], lay, true);
     }
     const w = adt.k === "Nat" ? tpl(tpl_nat("ull", "nat_chk(e, $0 + 1)"),
-      [val_word(vs[0])]) : `term_word(e, ${val_word(vs[0])})`;
+      [val_word(vs[0])]) : `term_word(e, ${val_word(vs[0])}, 32)`;
     return val_new([w], lay, /^\d/.test(w));
   }
   if (adt.k === "Array") {
@@ -2654,7 +2756,7 @@ function emit_row(fl: File, t: HTerm, ty: HTerm | null): string | null {
   s = emit_fold(fl, s) ?? s;
   const bits = k === "F32" && !fl.js;
   if (term_const(s)) {
-    return bits ? String(Bend.u32_from_term(s, "F32")) : js_expr(fl, s, ty);
+    return bits ? String(Bend.word_from_term(s, "F32")) : js_expr(fl, s, ty);
   }
   const m = term_spine(fl, s);
   const it = m.t.$ === "Ref" ? intr_of(fl, m.t.k) : undefined;
@@ -2700,20 +2802,21 @@ function emit_nats(adt: HAdt, x: HTerm): Chain | null {
   }
 }
 
-// A word match's leaves: the bits each knows (32: a hit), their value, its
+// A word match's leaves: the bits each knows (all: a hit), their value, its
 // arm and the words it binds. A default covers the deeper ones that are its
 // instance (the flattener's substitution replayed).
 function emit_lits(adt: HAdt, x: HTerm): Leaf[] | null {
-  if (WORDS[adt.k] !== W32) {
+  const bits = word_bits(adt.k);
+  if (bits === 0) {
     return null;
   }
   const ws: Leaf[] = [];
   const key = (t: HTerm): string => JSON.stringify(Bend.term_lower(t),
     (k, v) => k === "s" ? undefined : v?.$ === "Ann" ? Bend.term_strip(v) : v);
-  const walk = (t: HTerm, j: number, n: number,
+  const walk = (t: HTerm, j: number, n: bigint,
     cov: ((w: Of<"Ctr">) => HTerm) | null): void => {
     const h = mat_arms(t).arms[0]?.[1];
-    if (h !== undefined && j === 32) {
+    if (h !== undefined && j === bits) {
       ws.push([h, j, n, 0]);
       return;
     }
@@ -2726,14 +2829,14 @@ function emit_lits(adt: HAdt, x: HTerm): Leaf[] | null {
       || key(cov(w)) !== key(inst(w)));
     const sub = own ? inst : cov;
     for (const [k, a] of arms) {
-      walk(a, j + 1, n + (k === "True" ? 2 ** j : 0), sub && ((v) =>
+      walk(a, j + 1, n | BigInt(k === "True") << BigInt(j), sub && ((v) =>
         sub(Bend.Ctr("WCon", [Bend.Ctr(k, []), v]) as Of<"Ctr">)));
     }
     if (own) {
       ws.push([end, j, n, e]);
     }
   };
-  walk(mat_arms(x).arms[0][1], 0, 0, null);
+  walk(mat_arms(x).arms[0][1], 0, 0n, null);
   return ws;
 }
 
@@ -2744,7 +2847,7 @@ function lits_rows(fl: File, adt: HAdt, ws: Leaf[] | null,
   if (adt.k !== "U32" || ws === null) {
     return null;
   }
-  const hit = new Map(ws.flatMap(([h, j, n]) => j === 32 ? [[n, h]] : []));
+  const hit = new Map(ws.flatMap(([h, j, n]) => j === 32 ? [[Number(n), h]] : []));
   const out = ws.filter(([, j]) => j < 32);
   const rs = new Set(out.map(([o]) => emit_row(fl, o, ty)));
   const len = Math.max(-1, ...hit.keys()) + 1;
@@ -2752,8 +2855,11 @@ function lits_rows(fl: File, adt: HAdt, ws: Leaf[] | null,
     .map((_, i): Chain[number] => [hit.get(i) ?? out[0][0], null]) : null;
 }
 
-function lits_cond(w: string, j: number, n: number): string {
-  return j === 32 ? `${w} == ${n}` : `(${w} & ${2 ** j - 1}) == ${n}`;
+// A leaf's test on the word w of `bits` bits, its literals suffixed by x.
+function lits_cond(w: string, j: number, n: bigint, bits: number,
+  x = ""): string {
+  return j === bits ? `${w} == ${n}${x}`
+    : `(${w} & ${(1n << BigInt(j)) - 1n}${x}) == ${n}${x}`;
 }
 
 // A match's constructor arms, and its default as a "" arm when some
@@ -2775,10 +2881,13 @@ function emit_match(fl: File, x: Of<"Mat"> | Of<"Efq">,
   const ret = all.B(DUMMY);
   const ls = emit_nats(adt, x);
   const ws = emit_lits(adt, x);
-  // A word is matched on its bits, anything else in its own layout.
-  const lay = ws ? lay_node(fl.book, adt.k) : lay_of(fl.book, all.A);
-  const u = val_hold(fl, val_to(fl, args[0], ws ? W32 : lay), "s");
-  const sw = u.ws[0];
+  // A word is matched on its bits (halves joined), anything else in its own
+  // layout.
+  const half = HALF[adt.k];
+  const lay = ws ? lay_bits(fl.book, adt.k) : lay_of(fl.book, all.A);
+  const u = val_hold(fl, val_to(fl, args[0], ws ? half ?? W32 : lay), "s");
+  const sw = ws && half ? emit_alias(fl,
+    `((u64)${u.ws[1]} << 32 | ${u.ws[0]})`, "s", "w64") : u.ws[0];
   const tab = emit_tab(fl, ls ?? lits_rows(fl, adt, ws, ret), ret, sw);
   if (tab !== null) {
     bind_dead(fl, []);
@@ -2792,7 +2901,8 @@ function emit_match(fl: File, x: Of<"Mat"> | Of<"Efq">,
       () => n === null ? [] : [val_new([`(${sw} - ${n})`], lay)]]);
   } else if (ws !== null) {
     // the word at depth j, or its bit there and the tail
-    lv = ws.map(([h, j, n, e]) => [lits_cond(sw, j, n), h, () => {
+    lv = ws.map(([h, j, n, e]) => [lits_cond(sw, j, n, lay.ks.length,
+      half && "ull"), h, () => {
       let v = val_new(lay.ks.map((_, i) => `((${sw} >> ${i}) & 1)`),
         lay.arms![0].fs[0].lay);
       for (let i = 0; i < j; i++) {
@@ -3146,7 +3256,8 @@ function js_expr(fl: File, tm: HTerm,
     case "Ctr": {
       const [adt, u] = ctr_adt(fl, x, ty);
       if (u !== null) {
-        const v = adt.k === "F32" ? Bend.f32_from_bits(u) : u;
+        const v = HALF[adt.k] ? u + "n" : adt.k === "F32"
+          ? Bend.f32_from_bits(Number(u)) : u;
         return Object.is(v, -0) ? "-0" : String(v);
       }
       const exprs = ctr_flds(fl.book, x.k, x.x)
@@ -3231,10 +3342,12 @@ function js_match(fl: File, x: HTerm, ty: HTerm | null,
       n === null ? [] : [`(${s} - ${n}n)`]]);
   } else if (ws !== null) {
     // the word at depth j, or its bit there and the tail
+    const half = HALF[adt.k];
     const bits = adt.k === "F32" ? `f32_bits(${s})` : s;
-    const wd = (j: number): string =>
-      `u32_to_word(${bits})` + "[\"tail\"]".repeat(j);
-    lv = ws.map(([h, j, n, e]) => [lits_cond(bits, j, n), h, e === 1
+    const wd = (j: number): string => `${half ? "u64" : "u32"}_to_word(${
+      bits})` + "[\"tail\"]".repeat(j);
+    lv = ws.map(([h, j, n, e]) => [lits_cond(bits, j, n, word_bits(adt.k),
+      half && "n"), h, e === 1
       ? [wd(j)] : [wd(j) + "[\"head\"]", wd(j + 1)].slice(0, e)]);
   } else {
     const native = OPTIMIZED[adt.k];
@@ -4170,12 +4283,12 @@ INLINE Loc ctr_take(Env e, Term t, u32 n, THR Term* out) {
   return 0;
 }
 
-INLINE Term term_word(Env e, Term w) {
-  u32 x = 0;
+INLINE u64 term_word(Env e, Term w, u32 n) {
+  u64 x = 0;
   Term t = w;
-  for (u32 i = 0; i < 32 && term_aux(t) == CID_WCON; i += 1) {
+  for (u32 i = 0; i < n && term_aux(t) == CID_WCON; i += 1) {
     Loc l = term_peek(e, t);
-    x |= (u32)(e.mem[l] & 1) << i;
+    x |= (e.mem[l] & 1) << i;
     t = e.mem[l + 1];
   }
   term_sink(e, w);

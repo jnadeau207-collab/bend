@@ -36,7 +36,7 @@ Permanently test +0, -0, qNaN, sNaN, payloads, infinities, subnormals, arrays, c
 
 ### P0D — separate raw w64 from Term
 
-Emit `w64` as `u64`; keep `box` as `Term`. Fix every resulting error semantically. Blanket casts are forbidden.
+**Done by layout:** a 64-bit word is two `w32` halves wherever it is stored (contract §2); `tests/run/u64_transport.bend` probes it.
 
 Probe values containing tag bits, `RFC_BIT`, `TERM_HOLE`, and all ones through constructors, arrays, closure capture/return, scheduler frames, and fork results.
 
@@ -71,7 +71,7 @@ through scalar return, mixed constructors, tuple, Maybe, recursive data, arrays/
 
 Device transport is a separate qualification gate: missing hardware does not block P0/N1 host progress.
 
-**Exit:** C and JS preserve every tested 64-bit pattern exactly.
+**Exit:** C and JS preserve every tested 64-bit pattern exactly. **Done:** `tests/run/u64_transport.bend`.
 
 ## N2 — only the U64 primitives F64 needs
 
@@ -87,7 +87,7 @@ Implement the smallest integer substrate required by software binary64:
 
 Do not build a giant integer library first.
 
-**Exit:** differential tests pass on host lanes; device lanes follow when available.
+**Exit:** differential tests pass on host lanes; device lanes follow when available. **Host done:** `tests/run/u64_ops.bend` against exact integers. Base defines each op once over `Word(n)` (U32 and U64 share one long division); natives are C `u64` and JS BigInt.
 
 ## N3 — F64 raw value
 
@@ -95,7 +95,7 @@ Add `F64{Word(64n)}`, exact `from_bits/bits`, classification, sign operations, a
 
 No add/sub/mul yet.
 
-**Exit:** every important IEEE class and arbitrary NaN payload round-trips through C and JS.
+**Exit:** every important IEEE class and arbitrary NaN payload round-trips through C and JS. **Host done:** `tests/run/f64_bits.bend` (bits, class masks, sign ops, exact U32/F32 to F64; JS stores F64 as BigInt bits).
 
 ## N4 — software binary64 core
 

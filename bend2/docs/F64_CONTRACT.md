@@ -20,17 +20,11 @@ Never weaken a theorem to match an optimizer.
 
 ## 2. Raw words are not Terms
 
-`w32`, `w64`, and `box` are distinct compiler kinds.
+`w32`, `w64`, and `box` are distinct compiler kinds; a `w64` is a Nat, whose 48-bit cap keeps its tag byte zero.
 
-Generated C semantics:
+A 64-bit word type (U64, then F64 and I64) lies as two `w32` halves, low first, in every layout: node fields, arrays (a raw u32 buffer), closure captures, task frames, fork results. Every stored word is below 2^32, so no bit pattern can read as a runtime Term. Only a native joins the halves into one `u64`, and splits its result back.
 
-```text
-w32 -> u32
-w64 -> u64
-box -> Term
-```
-
-Machine width does not imply semantic identity. An arbitrary U64 equal to `TERM_HOLE`, containing `RFC_BIT`, or resembling a tag remains numeric data and must never pass through Term tag/reference-count operations.
+An arbitrary U64 equal to `TERM_HOLE`, containing `RFC_BIT`, or resembling a tag remains numeric data and never passes through Term tag/reference-count operations.
 
 ## 3. U64
 
@@ -122,7 +116,7 @@ F32->F64 and F64->F32 are numeric conversions, not bit casts. Raw construction u
 ## 9. Backends
 
 ### C/CPU
-Stored F64 remains raw U64 bits. Native `double` may implement qualified arithmetic after explicit unbox/rebox. No fast-math, reassociation, or implicit contraction.
+Stored F64 remains raw bits in two u32 halves. Native `double` may implement qualified arithmetic after explicit unbox/rebox. No fast-math, reassociation, or implicit contraction.
 
 ### JavaScript
 Stored F32/F64 is raw bits, not Number. F32 may use exact U32; F64 uses exact U64/BigInt or an equivalently exact representation. Number is temporary arithmetic state only.

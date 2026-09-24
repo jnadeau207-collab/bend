@@ -1237,30 +1237,27 @@ export function nat_from_term(t: LTerm): number | null {
     ? n + t.v : null;
 }
 
-export function u32_from_term<X>(tm: TermOf<X>, k: "U32" | "F32" = "U32"): number | null {
+// a word type's value as its n bits (a Lit, or its WCon chain in full)
+export function word_from_term<X>(tm: TermOf<X>, k: Name, n = 32): bigint | null {
   const w0 = term_strip(tm);
   if (w0.$ === "Lit") {
-    return w0.k === k ? w0.v : null;
+    return w0.k === k ? BigInt(w0.v) : null;
   }
   if (w0.$ !== "Ctr" || w0.k !== k || w0.x.length !== 1) {
     return null;
   }
-  let n = 0;
-  let i = 0;
+  let v = 0n;
+  let i = 0n;
   let w = term_strip(w0.x[0]);
   while (w.$ === "Ctr" && w.k === "WCon" && w.x.length === 2) {
     const b = term_strip(w.x[0]);
     if (b.$ !== "Ctr" || b.x.length !== 0 || (b.k !== "True" && b.k !== "False")) {
       return null;
     }
-    n += b.k === "True" ? 2 ** i : 0;
-    i += 1;
+    v |= BigInt(b.k === "True") << i++;
     w = term_strip(w.x[1]);
   }
-  if (i !== 32 || w.$ !== "Ctr" || w.k !== "WNil" || w.x.length !== 0) {
-    return null;
-  }
-  return n;
+  return i === BigInt(n) && w.$ === "Ctr" && w.k === "WNil" && w.x.length === 0 ? v : null;
 }
 
 // F32
@@ -1386,8 +1383,8 @@ export function term_show(term: LTerm, top: number = -1, bnd: Name[] = []): stri
   }
   function term_show_sugar_chr(tm: LTerm, quote: string): string | null {
     const n = tm.$ === "Ctr" && tm.k === "Chr" && tm.x.length === 1
-      ? u32_from_term(tm.x[0]) : null;
-    return n === null ? null : chr_show(n, quote);
+      ? word_from_term(tm.x[0], "U32") : null;
+    return n === null ? null : chr_show(Number(n), quote);
   }
   function term_show_sugar_str(tm: LTerm): string | null {
     const [cs, t] = term_show_chain(tm, "SCon", 2);
@@ -1473,11 +1470,11 @@ export function term_show(term: LTerm, top: number = -1, bnd: Name[] = []): stri
         return rs !== "" && prc > 1 ? "(" + s + ")" : s;
       }
       case "Ctr": {
-        const u32 = u32_from_term(tm);
-        const f32 = u32_from_term(tm, "F32");
+        const u32 = word_from_term(tm, "U32");
+        const f32 = word_from_term(tm, "F32");
         const chr = term_show_sugar_chr(tm, "'");
         const arr = term_show_sugar_arr(tm);
-        const sug = u32 !== null ? String(u32) : f32 !== null ? f32_show(f32_from_bits(f32))
+        const sug = u32 !== null ? String(u32) : f32 !== null ? f32_show(f32_from_bits(Number(f32)))
                  : term_show_sugar_nat(tm, prc)
                  ?? (chr !== null ? "'" + chr + "'" : null)
                  ?? term_show_sugar_str(tm)
