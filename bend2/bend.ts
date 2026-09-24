@@ -714,6 +714,43 @@ export function term_strip<X>(tm: TermOf<X>): TermOf<X> {
   return t;
 }
 
+// tm rebuilt over f of each child; a binder, a variable, a reference and
+// a substitution are the caller's.
+export function term_map<A, B>(tm: TermOf<A>, f: (t: TermOf<A>) => TermOf<B>): TermOf<B> {
+  switch (tm.$) {
+    case "Typ": {
+      return Typ(f(tm.g), tm.s);
+    }
+    case "Min": {
+      return Min(f(tm.a), f(tm.b), tm.s);
+    }
+    case "App": {
+      return App(f(tm.f), f(tm.x), tm.s);
+    }
+    case "ADT": {
+      return ADT(tm.k, tm.x.map((x) => f(x)), tm.s, tm.r);
+    }
+    case "Ctr": {
+      return Ctr(tm.k, tm.x.map((x) => f(x)), tm.s);
+    }
+    case "Mat": {
+      return Mat(tm.k, f(tm.h), f(tm.m), tm.s);
+    }
+    case "Eql": {
+      return Eql(f(tm.a), f(tm.b), f(tm.T), tm.s);
+    }
+    case "Rwt": {
+      return Rwt(f(tm.e), f(tm.p), f(tm.f), tm.s);
+    }
+    case "Ann": {
+      return Ann(f(tm.x), f(tm.T), tm.s);
+    }
+    default: {
+      return tm as TermOf<B>;
+    }
+  }
+}
+
 export function term_higher(tm: LTerm, env: Env = null): HTerm {
   switch (tm.$) {
     case "Var": {
@@ -769,16 +806,6 @@ export function term_higher(tm: LTerm, env: Env = null): HTerm {
         return term_higher(b.f, list_set(env, b.i, x));
       }, b.s, b.q);
     }
-    case "Typ": {
-      return Typ(term_higher(tm.g, env), tm.s);
-    }
-    case "Qnt":
-    case "Qua": {
-      return tm;
-    }
-    case "Min": {
-      return Min(term_higher(tm.a, env), term_higher(tm.b, env), tm.s);
-    }
     case "App": {
       const f = term_higher(tm.f, env);
       const x = term_higher(tm.x, env);
@@ -787,35 +814,8 @@ export function term_higher(tm: LTerm, env: Env = null): HTerm {
       }
       return App(f, x, tm.s);
     }
-    case "ADT": {
-      return ADT(tm.k, tm.x.map((x) => term_higher(x, env)), tm.s, tm.r);
-    }
-    case "Ctr": {
-      return Ctr(tm.k, tm.x.map((x) => term_higher(x, env)), tm.s);
-    }
-    case "Lit": {
-      return tm;
-    }
-    case "Mat": {
-      return Mat(tm.k, term_higher(tm.h, env), term_higher(tm.m, env), tm.s);
-    }
-    case "Efq": {
-      return Efq(tm.s);
-    }
-    case "Eql": {
-      return Eql(term_higher(tm.a, env), term_higher(tm.b, env), term_higher(tm.T, env), tm.s);
-    }
-    case "Rfl": {
-      return Rfl(tm.s);
-    }
-    case "Rwt": {
-      return Rwt(term_higher(tm.e, env), term_higher(tm.p, env), term_higher(tm.f, env), tm.s);
-    }
-    case "Hol": {
-      return Hol(tm.k, tm.s);
-    }
-    case "Ann": {
-      return Ann(term_higher(tm.x, env), term_higher(tm.T, env), tm.s);
+    default: {
+      return term_map(tm, (x) => term_higher(x, env));
     }
   }
 }
@@ -837,16 +837,6 @@ export function term_lower(term: HTerm, d: number = 0): LTerm {
       const vs = tm.v.map((v) => term_lower(v, d));
       return Let(tm.k, xs.map((_, j) => d + j), vs, term_lower(tm.f(xs), d + tm.k.length), tm.s, tm.q);
     }
-    case "Typ": {
-      return Typ(term_lower(tm.g, d), tm.s);
-    }
-    case "Qnt":
-    case "Qua": {
-      return tm;
-    }
-    case "Min": {
-      return Min(term_lower(tm.a, d), term_lower(tm.b, d), tm.s);
-    }
     case "All": {
       const x: HTerm = Var(tm.k, d);
       return All(tm.q, tm.k, d, term_lower(tm.A, d), term_lower(tm.B(x), d + 1), tm.s);
@@ -855,38 +845,8 @@ export function term_lower(term: HTerm, d: number = 0): LTerm {
       const x: HTerm = Var(tm.k, d);
       return Lam(tm.k, d, term_lower(tm.f(x), d + 1), tm.s, tm.q);
     }
-    case "App": {
-      return App(term_lower(tm.f, d), term_lower(tm.x, d), tm.s);
-    }
-    case "ADT": {
-      return ADT(tm.k, tm.x.map((x) => term_lower(x, d)), tm.s, tm.r);
-    }
-    case "Ctr": {
-      return Ctr(tm.k, tm.x.map((x) => term_lower(x, d)), tm.s);
-    }
-    case "Lit": {
-      return tm;
-    }
-    case "Mat": {
-      return Mat(tm.k, term_lower(tm.h, d), term_lower(tm.m, d), tm.s);
-    }
-    case "Efq": {
-      return Efq(tm.s);
-    }
-    case "Eql": {
-      return Eql(term_lower(tm.a, d), term_lower(tm.b, d), term_lower(tm.T, d), tm.s);
-    }
-    case "Rfl": {
-      return Rfl(tm.s);
-    }
-    case "Rwt": {
-      return Rwt(term_lower(tm.e, d), term_lower(tm.p, d), term_lower(tm.f, d), tm.s);
-    }
-    case "Hol": {
-      return Hol(tm.k, tm.s);
-    }
-    case "Ann": {
-      return Ann(term_lower(tm.x, d), term_lower(tm.T, d), tm.s);
+    default: {
+      return term_map(tm, (x) => term_lower(x, d));
     }
   }
 }
@@ -2348,7 +2308,7 @@ export function parse_term_num(p: Parse): LTerm {
         + " 18446744073709551615 (got " + m[0] + ")");
     }
     const spn = parse_span(p, beg);
-    const u = Ctr("U64", [x, x >> 32n].map((h) =>
+    const u: LTerm = Ctr("U64", [x, x >> 32n].map((h) =>
       Lit("U32", Number(h & 0xffffffffn), spn)), spn);
     return f ? Ctr("F64", [u], spn) : u;
   }
@@ -3179,16 +3139,6 @@ export function term_snf(book: Book, term: HTerm): HTerm {
     case "Sub": {
       return Sub(tm.i, tm.v.$ === "PVar" || tm.v.$ === "PCtr" ? tm.v : term_snf(book, tm.v), term_snf(book, tm.f), tm.s);
     }
-    case "Typ": {
-      return Typ(term_snf(book, tm.g), tm.s);
-    }
-    case "Qnt":
-    case "Qua": {
-      return tm;
-    }
-    case "Min": {
-      return Min(term_snf(book, tm.a), term_snf(book, tm.b), tm.s);
-    }
     case "All": {
       return All(tm.q, tm.k, tm.i, term_snf(book, tm.A), (x: HTerm) => {
         return term_snf(book, tm.B(x));
@@ -3202,32 +3152,8 @@ export function term_snf(book: Book, term: HTerm): HTerm {
     case "App": {
       return App(tm.f.$ === "Ref" ? tm.f : term_snf(book, tm.f), term_snf(book, tm.x), tm.s);
     }
-    case "ADT": {
-      return ADT(tm.k, tm.x.map((x) => term_snf(book, x)), tm.s, tm.r);
-    }
-    case "Ctr": {
-      return Ctr(tm.k, tm.x.map((x) => term_snf(book, x)), tm.s);
-    }
-    case "Lit": {
-      return tm;
-    }
-    case "Mat": {
-      return Mat(tm.k, term_snf(book, tm.h), term_snf(book, tm.m), tm.s);
-    }
-    case "Efq": {
-      return Efq(tm.s);
-    }
-    case "Eql": {
-      return Eql(term_snf(book, tm.a), term_snf(book, tm.b), term_snf(book, tm.T), tm.s);
-    }
-    case "Rfl": {
-      return Rfl(tm.s);
-    }
-    case "Rwt": {
-      return Rwt(term_snf(book, tm.e), term_snf(book, tm.p), term_snf(book, tm.f), tm.s);
-    }
-    case "Hol": {
-      return Hol(tm.k, tm.s);
+    default: {
+      return term_map(tm, (x) => term_snf(book, x));
     }
   }
 }
