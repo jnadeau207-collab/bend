@@ -497,45 +497,35 @@ def Cmp.is_lt(c: Cmp) -> Bool:
   match c:
     case LT{}:
       True{}
-    case EQ{}:
-      False{}
-    case GT{}:
+    case o:
       False{}
 
 def Cmp.is_eq(c: Cmp) -> Bool:
   match c:
-    case LT{}:
-      False{}
     case EQ{}:
       True{}
-    case GT{}:
+    case o:
       False{}
 
 def Cmp.is_gt(c: Cmp) -> Bool:
   match c:
-    case LT{}:
-      False{}
-    case EQ{}:
-      False{}
     case GT{}:
       True{}
+    case o:
+      False{}
 
 def Cmp.is_le(c: Cmp) -> Bool:
   match c:
-    case LT{}:
-      True{}
-    case EQ{}:
-      True{}
     case GT{}:
       False{}
+    case o:
+      True{}
 
 def Cmp.is_ge(c: Cmp) -> Bool:
   match c:
     case LT{}:
       False{}
-    case EQ{}:
-      True{}
-    case GT{}:
+    case o:
       True{}
 
 # Nat
@@ -679,19 +669,11 @@ def Nat.max_ge_r(a, b):
     case 1n+ap 1n+bp:
       Nat.max_ge_r(ap, bp)
 
-def Nat.div.fin(qr: Nat & Nat) -> Nat:
-  (q, r) = qr
-  q
-
 def Nat.div(a: Nat, b: Nat) -> Nat:
-  Nat.div.fin(Nat.divmod(a, b))
-
-def Nat.mod.fin(qr: Nat & Nat) -> Nat:
-  (q, r) = qr
-  r
+  Pair.fst(Nat, Nat, Nat.divmod(a, b))
 
 def Nat.mod(a: Nat, b: Nat) -> Nat:
-  Nat.mod.fin(Nat.divmod(a, b))
+  Pair.snd(Nat, Nat, Nat.divmod(a, b))
 
 def Nat.pow(+a: Nat, b: Nat) -> Nat:
   match b:
@@ -1106,32 +1088,24 @@ def Word.not(n: Nat, w: Word(n)) -> Word(n):
         case WCon{b, t}:
           WCon{Bool.not(b), Word.not(p, t)}
 
-def Word.and(n: Nat, a: Word(n), b: Word(n)) -> Word(n):
+def Word.zip(~f: Bool -> Bool -> Bool, n: Nat, a: Word(n), b: Word(n)) ->
+  Word(n):
   match n:
     case 0n:
       WNil{}
     case 1n+p:
       match a b:
         case WCon{ab, at} WCon{bb, bt}:
-          WCon{Bool.and(ab, bb), Word.and(p, at, bt)}
+          WCon{f(ab, bb), Word.zip(~f, p, at, bt)}
+
+def Word.and(n: Nat, a: Word(n), b: Word(n)) -> Word(n):
+  Word.zip(~Bool.and, n, a, b)
 
 def Word.or(n: Nat, a: Word(n), b: Word(n)) -> Word(n):
-  match n:
-    case 0n:
-      WNil{}
-    case 1n+p:
-      match a b:
-        case WCon{ab, at} WCon{bb, bt}:
-          WCon{Bool.or(ab, bb), Word.or(p, at, bt)}
+  Word.zip(~Bool.or, n, a, b)
 
 def Word.xor(n: Nat, a: Word(n), b: Word(n)) -> Word(n):
-  match n:
-    case 0n:
-      WNil{}
-    case 1n+p:
-      match a b:
-        case WCon{ab, at} WCon{bb, bt}:
-          WCon{Bool.xor(ab, bb), Word.xor(p, at, bt)}
+  Word.zip(~Bool.xor, n, a, b)
 
 def Word.shl.put(n: Nat, c: Bool, w: Word(n)) -> Word(n):
   match n:
@@ -1383,24 +1357,16 @@ def Word.divmod(m: Nat, +n: Nat, a: Word(m), +b: Word(n)) -> Word(m) & Word(n):
     case 1n+p WCon{a0, hi}:
       Word.divmod.rec(p, n, a0, b, Word.divmod(p, n, hi, b))
 
-def Word.div.fin(-n: Nat, qr: Word(n) & Word(n)) -> Word(n):
-  (q, r) = qr
-  q
-
-def Word.mod.fin(-n: Nat, qr: Word(n) & Word(n)) -> Word(n):
-  (q, r) = qr
-  r
-
 def Word.is_zero(+n: Nat, w: Word(n)) -> Bool:
   Cmp.is_eq(Word.cmp(n, w, Word.zero(n)))
 
 def Word.div(+n: Nat, a: Word(n), +b: Word(n)) -> Word(n):
   Bool.pick(Word(n), Word.is_zero(n, b), Word.zero(n),
-    Word.div.fin(n, Word.divmod(n, n, a, b)))
+    Pair.fst(Word(n), Word(n), Word.divmod(n, n, a, b)))
 
 def Word.mod(+n: Nat, +a: Word(n), +b: Word(n)) -> Word(n):
   Bool.pick(Word(n), Word.is_zero(n, b), a,
-    Word.mod.fin(n, Word.divmod(n, n, a, b)))
+    Pair.snd(Word(n), Word(n), Word.divmod(n, n, a, b)))
 
 # U32
 # ---
@@ -3203,12 +3169,8 @@ def Map.pop(a, V, m, key):
     case MNode{+pos, lo, hi}:
       Map.pop.bit(a, V, lo, hi, pos, Map.bit(key, pos))
 
-def Map.del.fin(a, -V: Kind(a), r: Map<a, V> & Maybe<a, V>) -> Map<a, V>:
-  (m2, x) = r
-  m2
-
 def Map.del(a, -V: Kind(a), m: Map<a, V>, key: String) -> Map<a, V>:
-  Map.del.fin(a, V, Map.pop(a, V, m, key))
+  Pair.fst(Map<a, V>, Maybe<a, V>, Map.pop(a, V, m, key))
 
 def Map.to_list.go(
   a, -V: Kind(a), m: Map<a, V>, acc: List<a, Sigma<&2, a, String, _ => V>>
