@@ -127,7 +127,7 @@ type Call = {
 type Intr = {
   C?: string | string[];
   call?: boolean;
-  JS?: string;
+  JS: string;
 };
 
 type Dom = [Bend.Quant, Name, HTerm];
@@ -178,6 +178,26 @@ const ERRS = ("|*|*|out of memory: run again with a bigger span, as in"
 // ----------
 
 const CMPS = "is_eq:==:=== is_ne:!=:!== is_lt:< is_le:<= is_gt:> is_ge:>=";
+
+const SOFT: Record<string, Intr> = Object.setPrototypeOf({
+  ...tpl_ops("f64_", "add:+ sub:- mul:* div:/",
+    "f64_of(f64_num($0) $o f64_num($1))"),
+  ...tpl_ops("f64_", CMPS, "(f64_num($0) $o f64_num($1))"),
+  ...tpl_ops("f64_", "sqrt", "f64_of(sqrt(f64_num($0)))",
+    "f64_of(Math.sqrt(f64_num($0)))"),
+  ...tpl_ops("f64_", "fma",
+    "f64_of(fma(f64_num($0), f64_num($1), f64_num($2)))", "f64_fma($0, $1, $2)"),
+  ...tpl_ops("f64_", "to_f32",
+    "(f64_num($0) != f64_num($0) ? 0x7FC00000 : f32_rewrap((f32)f64_num($0)))",
+    "Math.fround(f64_num(f64_of(f64_num($0))))"),
+  f64_to_u64: {
+    C:    "(f64_num($0) >= 0 && f64_num($0) < 0x1p64 ? (u64)f64_num($0) : 0)",
+    JS:   "(f64_num($0) >= 0 && f64_num($0) < 2 ** 64"
+      + " ? BigInt(Math.trunc(f64_num($0))) : 0n)",
+  },
+  ...tpl_ops("", "u64_to_f64:(double):Number f32_to_f64:f32_unbox:",
+    "f64_of($o($0))"),
+}, null);
 
 const OPERATIONS: Record<string, Intr> = Object.setPrototypeOf({
   ...tpl_ops("u32_", "add:+ sub:- and:& or:| xor:^",
@@ -231,39 +251,31 @@ const OPERATIONS: Record<string, Intr> = Object.setPrototypeOf({
     "($1 >= 64n ? 0n : BigInt.asUintN(64, $0 $o $1))"),
   ...tpl_ops("u64_", "div", "($1 ? $0 / $1 : $1)"),
   ...tpl_ops("u64_", "mod", "($1 ? $0 % $1 : $0)"),
-  ...tpl_ops("u64_", "from_nat to_nat", "$0"),
+  ...tpl_ops("u64_", "from_nat", "$0"),
+  u64_to_nat: {
+    C:  "nat_chk(e, $0)",
+    JS: "nat_chk($0)",
+  },
   ...tpl_ops("u64_", "clz",
     "($0 >> 32 ? CLZ((u32)($0 >> 32)) : $0 ? 32 + CLZ((u32)$0) : 64)",
     "(64 - $0.toString(2).length + !$0)"),
   ...tpl_ops("u64_", "mul_hi", "u64_mul_hi($0, $1)", "($0 * $1 >> 64n)"),
-  ...tpl_ops("f64_", "add:+ sub:- mul:* div:/",
-    "f64_of(f64_num($0) $o f64_num($1))"),
-  ...tpl_ops("f64_", CMPS, "(f64_num($0) $o f64_num($1))"),
-  ...tpl_ops("f64_", "sqrt", "f64_of(sqrt(f64_num($0)))",
-    "f64_of(Math.sqrt(f64_num($0)))"),
-  ...tpl_ops("f64_", "fma", "f64_of(fma(f64_num($0), f64_num($1), f64_num($2)))",
-    "f64_fma($0, $1, $2)"),
-  ...tpl_ops("f64_", "to_f32",
-    "(f64_num($0) != f64_num($0) ? 0x7FC00000 : f32_rewrap((f32)f64_num($0)))",
-    "Math.fround(f64_num(f64_of(f64_num($0))))"),
-  f64_to_u64: {
-    C:    "(f64_num($0) >= 0 && f64_num($0) < 0x1p64 ? (u64)f64_num($0) : 0)",
-    JS:   "(f64_num($0) >= 0 && f64_num($0) < 2 ** 64"
-      + " ? BigInt(Math.trunc(f64_num($0))) : 0n)",
+  u32_show: {
+    JS: "String($0 >>> 0)",
   },
-  ...tpl_ops("", "u64_to_f64:(double):Number f32_to_f64:f32_unbox:",
-    "f64_of($o($0))"),
   u64_show: {
-    JS: "String($0)",
+    JS: "String(BigInt.asUintN(64, $0))",
+  },
+  u32_read: {
+    JS: "num_read($0, 32n)",
   },
   u64_read: {
-    JS: "(/^\\d+$/.test($0) && BigInt($0) >> 64n === 0n"
-      + " ? {$: \"Some\", value: BigInt($0)} : {$: \"None\"})",
+    JS: "num_read($0, 64n)",
   },
   f64_show: {
     C:    "f32_show(e, $0, 1)",
     call: true,
-    JS:   "f32_text(f64_num($0), 17)",
+    JS:   "f32_show(f64_num($0), 17)",
   },
   f64_read: {
     C:    "f32_read(e, $0, 1)",
@@ -294,12 +306,12 @@ const OPERATIONS: Record<string, Intr> = Object.setPrototypeOf({
   },
   f32_bits: {
     C:  "$0",
-    JS: "f32_to_bits($0)",
+    JS: "f32_bits($0)",
   },
   f32_show: {
     C:    "f32_show(e, $0, 0)",
     call: true,
-    JS:   "f32_text($0)",
+    JS:   "f32_show($0)",
   },
   f32_read: {
     C:    "f32_read(e, $0, 0)",
@@ -324,7 +336,10 @@ const OPERATIONS: Record<string, Intr> = Object.setPrototypeOf({
   },
   ...tpl_ops("", "nat_cmp u64_cmp", "(($0 > $1) + ($0 >= $1))",
     "cmp_new($0, $1)"),
-  ...tpl_ops("nat_", "is_lt", "($0 < $1)"),
+  nat_is_lt: {
+    C:  "($0 < $1)",
+    JS: "($0 < $1)",
+  },
   nat_divmod: {
     C:    ["($1 == 0 ? 0 : $0 / $1)", "($1 == 0 ? $0 : $0 % $1)"],
     call: true,
@@ -393,8 +408,10 @@ const OPTIMIZED: Record<Name, Native> = Object.setPrototypeOf({
     Chr: {
       intr: ([c]: string[]) => {
         const n = Number(c);
-        return /^\d+$/.test(c) && Bend.chr_ok(n)
-          ? JSON.stringify(String.fromCodePoint(n)) : "char_new(" + c + ")";
+        return /^\d+$/.test(c)
+          && (n < 0xd800 || n >= 0xe000 && n <= 0x10ffff)
+          ? JSON.stringify(String.fromCodePoint(n))
+          : "char_new(" + c + ")";
       },
       elim: ["$0.codePointAt(0)"],
     },
@@ -596,10 +613,41 @@ function nat_chk(n) {
   return n;
 }
 
-const F32_VIEW = new DataView(new ArrayBuffer(8));
+function f32_show(x, n = 9) {
+  if (x !== x) {
+    return "nan";
+  }
+  if (!Number.isFinite(x) || Object.is(x, -0)) {
+    return x < 0 ? "-inf"
+      : x === 0 ? "-0" : "inf";
+  }
+  let s = "x";
+  for (let p = 1; p <= n
+    && (n > 9 ? Number(s) : Math.fround(Number(s))) !== x; p += 1) {
+    s = String(Number(x.toExponential(p - 1)));
+  }
+  return s;
+}
 
-${[Bend.f32_text, Bend.f32_show, Bend.f32_to_bits, Bend.f32_from_bits,
-  Bend.f64_of, Bend.f64_num].join("\n\n")}
+function f32_bits(x) {
+  return new Uint32Array(new Float32Array([x]).buffer)[0];
+}
+
+function f32_from_bits(u) {
+  return new Float32Array(new Uint32Array([u]).buffer)[0];
+}
+
+const F64_VIEW = new DataView(new ArrayBuffer(8));
+
+function f64_of(x) {
+  F64_VIEW.setFloat64(0, x);
+  return x !== x ? 0x7FF8000000000000n : F64_VIEW.getBigUint64(0);
+}
+
+function f64_num(u) {
+  F64_VIEW.setBigUint64(0, u);
+  return F64_VIEW.getFloat64(0);
+}
 
 function f64_fma(a, b, c) {
   const [x, y, z] = [a, b, c].map(f64_num);
@@ -627,10 +675,13 @@ function f32_read(s, f = Math.fround) {
   return re.test(s) ? {$: "Some", value: f(v)} : {$: "None"};
 }
 
-${Bend.chr_ok}
+function num_read(s, w) {
+  return /^\d+$/.test(s) && BigInt(s) >> w === 0n
+    ? {$: "Some", value: w > 32n ? BigInt(s) : Number(s)} : {$: "None"};
+}
 
 function char_new(code) {
-  if (!chr_ok(code)) {
+  if (code > 0x10FFFF || (code >= 0xD800 && code <= 0xDFFF)) {
     throw "bend: " + code + " is not a Unicode scalar value";
   }
   return String.fromCodePoint(code);
@@ -930,13 +981,9 @@ function live_dom([q]: Dom): boolean {
 function intr_of(c: Carb, k: Name, js = false): Intr | undefined {
   const tld = c.book.tlds[k];
   const it = tld?.$ === "Def" && tld.i === undefined && tld.b
-    ? OPERATIONS[op_name(k)] : undefined;
-  return it !== undefined && (js ? it.JS !== undefined : !intr_soft(it)
-    && (it.C !== undefined || it.call === true)) ? it : undefined;
-}
-
-function intr_soft(it?: Intr): boolean {
-  return /f64_(num|of)\(/.test(String(it?.C));
+    ? OPERATIONS[op_name(k)] ?? (js ? SOFT[op_name(k)] : undefined) : undefined;
+  return it !== undefined && (js || it.C !== undefined || it.call === true)
+    ? it : undefined;
 }
 
 // Call
@@ -1110,7 +1157,7 @@ function lay_node(book: Bend.Book, k: Name): Lay {
 }
 
 function lay_key(cb: Carb, k: Name, ers: HTerm[]): string {
-  return [k, ...ers.map((e) => JSON.stringify(lay_of(cb.book, e)))].join("|");
+  return ers.reduce((s, e) => s + "|" + JSON.stringify(lay_of(cb.book, e)), k);
 }
 
 function lay_eq(a: Lay, b: Lay): boolean {
@@ -1320,9 +1367,8 @@ export function io_type(book: Bend.Book): HTerm | null {
 // A pure main prints through a descriptor of its type, a node per (type,
 // boxed?): 0 U32, 1 F32, 2 Nat, 3 Char, 4 String, 5 Eql, 6 Array (element,
 // lgs), 7 Data (boxed?, arms; per arm name, cid, fields, bracket, then an
-// (offset, node) per field), 8 U64, 9 F64 (as Char). Null for an IO main;
-// an unprintable type (a function, a Type, an erased or dependent field)
-// refuses the build.
+// (offset, node) per field). Null for an IO main; an unprintable type (a
+// function, a Type, an erased or dependent field) refuses the build.
 function show_main(book: Bend.Book): Show | null {
   const main = book.tlds["main"];
   if (main?.$ !== "Def" || (main.v === null && main.i === undefined)
@@ -2290,10 +2336,10 @@ function emit_fuse(fl: File, ck: Call, dst?: Dst, tail = false): Dst {
     return null;
   }
   const out = emit_dst(fl, ret);
-  const it = tld.b ? OPERATIONS[op_name(ck.k)] : undefined;
-  if (intr_soft(it)) {
+  const it = tld.b ? SOFT[op_name(ck.k)] : undefined;
+  if (it !== undefined) {
     file_push(fl, "#ifndef __METAL_VERSION__");
-    emit_put(fl, out, intr_c(fl, it!.C as string, ck.k, vals, ret));
+    emit_put(fl, out, intr_c(fl, it.C as string, ck.k, vals, ret));
     file_push(fl, "#else");
   }
   const name = emit_native(fl, ck, ers);
@@ -2303,7 +2349,7 @@ function emit_fuse(fl: File, ck: Call, dst?: Dst, tail = false): Dst {
     file_push(fl, "return 0;");
   });
   out.ws.forEach((v, j) => file_push(fl, `${v} = ${o}[${j}];`));
-  if (intr_soft(it)) {
+  if (it !== undefined) {
     file_push(fl, "#endif");
   }
   if (tail) {
@@ -2515,8 +2561,8 @@ function emit_unfold(fl: File, s: HTerm): HTerm | null {
   const m = term_spine(fl, s);
   const d = m.tld;
   if (m.t.$ !== "Ref" || d?.$ !== "Def" || d.h === undefined
-    || m.all.length !== d.n || d.b && intr_soft(OPERATIONS[op_name(m.t.k)])
-    || intr_of(fl, m.t.k) !== undefined || !flat_of(m.t.k)) {
+    || m.all.length !== d.n || intr_of(fl, m.t.k) !== undefined
+    || !flat_of(m.t.k) || d.b && SOFT[op_name(m.t.k)] !== undefined) {
     return null;
   }
   const fs = m.all.map((a) => m.args.includes(a) ? emit_fold(fl, a) ?? a : a);
@@ -2536,7 +2582,7 @@ function emit_unfold(fl: File, s: HTerm): HTerm | null {
       }
       const { arms, end } = mat_arms(w);
       const arm = arms.find(([k]) => k === c.k);
-      b = arm?.[1] ?? end;
+      b = arm === undefined ? end : arm[1];
       xs = arm === undefined ? xs
         : [...ctr_flds(fl.book, c.k, c.x), ...xs.slice(1)];
       hit = true;
@@ -2788,7 +2834,7 @@ function emit_fork(fl: File, x: HLet, ers: HTerm[]): void {
 }
 
 // A row is JS text; a C-lane F32 row is its bits (a NaN payload has no JS
-// number): a constant's own, an intrinsic's through f32_to_bits.
+// number): a constant's own, an intrinsic's through f32_bits.
 function emit_row(fl: File, t: HTerm, ty: HTerm | null): string | null {
   const k = ty_adt(fl.book, ty)?.k ?? "";
   if (ty !== null && WORDS[k] === undefined) {
@@ -2805,12 +2851,12 @@ function emit_row(fl: File, t: HTerm, ty: HTerm | null): string | null {
   }
   const m = term_spine(fl, s);
   const it = m.t.$ === "Ref" ? intr_of(fl, m.t.k) : undefined;
-  if (it?.JS === undefined || TAB_BAD.test(it.JS)) {
+  if (it === undefined || TAB_BAD.test(it.JS)) {
     return null;
   }
   const xs = m.args.map((a) => emit_row(fl, a, null));
   const r = xs.includes(null) ? null : tpl(it.JS, xs as string[]);
-  return r !== null && bits ? `f32_to_bits(${r})` : r;
+  return r !== null && bits ? `f32_bits(${r})` : r;
 }
 
 // The table a match reads at `s`, when it has rows and every row is a
@@ -2821,7 +2867,7 @@ function emit_tab(fl: File, rows: Chain | null, ty: HTerm,
   if (rows === null || ls.includes(null)) {
     return null;
   }
-  const key = fl.js ? ls.join(", ") : Function("f32_to_bits",
+  const key = fl.js ? ls.join(", ") : Function("f32_bits",
     "return [" + ls + "]")(Bend.f32_to_bits).map((v: number) => BigInt(v)
     + "ull").join(", ");
   const tab = "TAB_" + memo(fl.tabs, key, () => fl.tabs.size);
@@ -2998,8 +3044,17 @@ function emit_chain(fl: File, cond: (i: number) => string,
   if (bodies.length === 1) {
     return bodies[0]();
   }
-  bodies.forEach((body, i) => block(fl, i === bodies.length - 1 ? "else {"
-    : `${i === 0 ? "if" : "else if"} (${cond(i)}) {`, body));
+  bodies.forEach((body, i) => {
+    if (i === bodies.length - 1) {
+      file_push(fl, "} else {");
+    } else {
+      file_push(fl, `${i === 0 ? "if" : "} else if"} (${cond(i)}) {`);
+    }
+    fl.tab += 1;
+    body();
+    fl.tab -= 1;
+  });
+  file_push(fl, "}");
 }
 
 // Compile
@@ -3377,7 +3432,7 @@ function js_match(fl: File, x: HTerm, ty: HTerm | null,
       n === null ? [] : [`(${s} - ${n}n)`]]);
   } else if (ws !== null) {
     // the word at depth j, or its bit there and the tail
-    const bits = adt.k === "F32" ? `f32_to_bits(${s})` : s;
+    const bits = adt.k === "F32" ? `f32_bits(${s})` : s;
     const wd = (j: number): string =>
       `u32_to_word(${bits})` + "[\"tail\"]".repeat(j);
     lv = ws.map(([h, j, n, e]) => [lits_cond(bits, j, n), h, e === 1
@@ -6282,9 +6337,12 @@ function cli(argv) {
 // ====
 
 // char_show: an escape, a \u{hex}, else the code point
-const ESCAPES = ${JSON.stringify(Bend.ESCAPES)};
-
-${Bend.chr_show}
+function show_chr(c, q) {
+  const k = { 10: "n", 9: "t", 13: "r", 0: "0", 92: "\\" }[c]
+    ?? (c === q.codePointAt(0) ? q : null);
+  return k !== null ? "\\" + k : c < 32 || c === 127
+    ? "\\u{" + c.toString(16) + "}" : String.fromCodePoint(c);
+}
 
 // A pure main's value as term_show spells it (see show_main); chain is the
 // bracket it continues, or 0.
@@ -6305,12 +6363,13 @@ function show_val(D, N, d, v, chain) {
     return o === "{" || chain !== o ? s + "}])"[D[a + 3]] : s;
   }
   return D[d] === 0 ? String(v)
-    : D[d] === 1 ? f32_show(v)
-    : D[d] === 9 ? f32_show(f64_num(v), 17) + "f64"
+    : D[d] === 1 ? f32_show(v).replace(/^-?\d+(?=e|$)/, "$&.0")
+    : D[d] === 9 ? f32_show(f64_num(v), 17)
+      .replace(/^-?\d+(?=e|$)/, "$&.0") + "f64"
     : D[d] === 2 ? v + "n"
-    : D[d] === 3 ? "'" + chr_show(v.codePointAt(0), "'") + "'"
+    : D[d] === 3 ? "'" + show_chr(v.codePointAt(0), "'") + "'"
     : D[d] === 4 ? "\"" + [...v].map((c) =>
-      chr_show(c.codePointAt(0), "\"")).join("") + "\""
+      show_chr(c.codePointAt(0), "\"")).join("") + "\""
     : D[d] === 5 ? "{==}"
     : D[d] === 8 ? v + "u64"
     : "[" + v.map((x) => show_val(D, N, D[d + 1], x, 0)).join(", ") + "]";

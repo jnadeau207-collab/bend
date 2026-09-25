@@ -69,8 +69,6 @@
 // Nat    | NUMBER "n" ("+" T)?        | Lit, read as Succ{..Zero{}}; Succ{..T}
 // U32    | NUMBER                     | Lit, read as U32{WCon{b, ..WNil{}}}
 // F32    | NUMBER "." NUMBER [EXP]    | Lit, read as F32{WCon{b, ..WNil{}}}
-// U64    | NUMBER "u64"               | U64{lo, hi}, its halves U32 Lits
-// F64    | NUMBER ["." ..] "f64"      | F64{U64}, its binary64 bits
 // Chr    | "'" CHAR "'"               | Chr{U32}, its U32 a Lit
 // Str    | "\"" [CHAR] "\""           | Lit, read as SCon{Chr, ..SNil{}}
 // Index  | x "[" i "]" ("<-" v)?      | Array.get(U32, x, i), ..set(..)
@@ -714,41 +712,6 @@ export function term_strip<X>(tm: TermOf<X>): TermOf<X> {
   return t;
 }
 
-export function term_map<A, B>(tm: TermOf<A>, f: (t: TermOf<A>) => TermOf<B>): TermOf<B> {
-  switch (tm.$) {
-    case "Typ": {
-      return Typ(f(tm.g), tm.s);
-    }
-    case "Min": {
-      return Min(f(tm.a), f(tm.b), tm.s);
-    }
-    case "App": {
-      return App(f(tm.f), f(tm.x), tm.s);
-    }
-    case "ADT": {
-      return ADT(tm.k, tm.x.map((x) => f(x)), tm.s, tm.r);
-    }
-    case "Ctr": {
-      return Ctr(tm.k, tm.x.map((x) => f(x)), tm.s);
-    }
-    case "Mat": {
-      return Mat(tm.k, f(tm.h), f(tm.m), tm.s);
-    }
-    case "Eql": {
-      return Eql(f(tm.a), f(tm.b), f(tm.T), tm.s);
-    }
-    case "Rwt": {
-      return Rwt(f(tm.e), f(tm.p), f(tm.f), tm.s);
-    }
-    case "Ann": {
-      return Ann(f(tm.x), f(tm.T), tm.s);
-    }
-    default: {
-      return tm as TermOf<B>;
-    }
-  }
-}
-
 export function term_higher(tm: LTerm, env: Env = null): HTerm {
   switch (tm.$) {
     case "Var": {
@@ -804,6 +767,16 @@ export function term_higher(tm: LTerm, env: Env = null): HTerm {
         return term_higher(b.f, list_set(env, b.i, x));
       }, b.s, b.q);
     }
+    case "Typ": {
+      return Typ(term_higher(tm.g, env), tm.s);
+    }
+    case "Qnt":
+    case "Qua": {
+      return tm;
+    }
+    case "Min": {
+      return Min(term_higher(tm.a, env), term_higher(tm.b, env), tm.s);
+    }
     case "App": {
       const f = term_higher(tm.f, env);
       const x = term_higher(tm.x, env);
@@ -812,8 +785,35 @@ export function term_higher(tm: LTerm, env: Env = null): HTerm {
       }
       return App(f, x, tm.s);
     }
-    default: {
-      return term_map(tm, (x) => term_higher(x, env));
+    case "ADT": {
+      return ADT(tm.k, tm.x.map((x) => term_higher(x, env)), tm.s, tm.r);
+    }
+    case "Ctr": {
+      return Ctr(tm.k, tm.x.map((x) => term_higher(x, env)), tm.s);
+    }
+    case "Lit": {
+      return tm;
+    }
+    case "Mat": {
+      return Mat(tm.k, term_higher(tm.h, env), term_higher(tm.m, env), tm.s);
+    }
+    case "Efq": {
+      return Efq(tm.s);
+    }
+    case "Eql": {
+      return Eql(term_higher(tm.a, env), term_higher(tm.b, env), term_higher(tm.T, env), tm.s);
+    }
+    case "Rfl": {
+      return Rfl(tm.s);
+    }
+    case "Rwt": {
+      return Rwt(term_higher(tm.e, env), term_higher(tm.p, env), term_higher(tm.f, env), tm.s);
+    }
+    case "Hol": {
+      return Hol(tm.k, tm.s);
+    }
+    case "Ann": {
+      return Ann(term_higher(tm.x, env), term_higher(tm.T, env), tm.s);
     }
   }
 }
@@ -835,6 +835,16 @@ export function term_lower(term: HTerm, d: number = 0): LTerm {
       const vs = tm.v.map((v) => term_lower(v, d));
       return Let(tm.k, xs.map((_, j) => d + j), vs, term_lower(tm.f(xs), d + tm.k.length), tm.s, tm.q);
     }
+    case "Typ": {
+      return Typ(term_lower(tm.g, d), tm.s);
+    }
+    case "Qnt":
+    case "Qua": {
+      return tm;
+    }
+    case "Min": {
+      return Min(term_lower(tm.a, d), term_lower(tm.b, d), tm.s);
+    }
     case "All": {
       const x: HTerm = Var(tm.k, d);
       return All(tm.q, tm.k, d, term_lower(tm.A, d), term_lower(tm.B(x), d + 1), tm.s);
@@ -843,8 +853,38 @@ export function term_lower(term: HTerm, d: number = 0): LTerm {
       const x: HTerm = Var(tm.k, d);
       return Lam(tm.k, d, term_lower(tm.f(x), d + 1), tm.s, tm.q);
     }
-    default: {
-      return term_map(tm, (x) => term_lower(x, d));
+    case "App": {
+      return App(term_lower(tm.f, d), term_lower(tm.x, d), tm.s);
+    }
+    case "ADT": {
+      return ADT(tm.k, tm.x.map((x) => term_lower(x, d)), tm.s, tm.r);
+    }
+    case "Ctr": {
+      return Ctr(tm.k, tm.x.map((x) => term_lower(x, d)), tm.s);
+    }
+    case "Lit": {
+      return tm;
+    }
+    case "Mat": {
+      return Mat(tm.k, term_lower(tm.h, d), term_lower(tm.m, d), tm.s);
+    }
+    case "Efq": {
+      return Efq(tm.s);
+    }
+    case "Eql": {
+      return Eql(term_lower(tm.a, d), term_lower(tm.b, d), term_lower(tm.T, d), tm.s);
+    }
+    case "Rfl": {
+      return Rfl(tm.s);
+    }
+    case "Rwt": {
+      return Rwt(term_lower(tm.e, d), term_lower(tm.p, d), term_lower(tm.f, d), tm.s);
+    }
+    case "Hol": {
+      return Hol(tm.k, tm.s);
+    }
+    case "Ann": {
+      return Ann(term_lower(tm.x, d), term_lower(tm.T, d), tm.s);
     }
   }
 }
@@ -1168,12 +1208,8 @@ export function word_to_term<X>(n: U32, s?: Span): TermOf<X> {
 // Unicode scalar values only, so a literal that spells a surrogate or a
 // code point past U+10FFFF is its chain.
 
-export function chr_ok(c: number): boolean {
-  return c <= 0x10ffff && (c < 0xd800 || c > 0xdfff);
-}
-
 export function lit_of(cs: U32[], s?: Span): LTerm {
-  if (cs.every(chr_ok)) {
+  if (cs.every((c) => c <= 0x10ffff && (c < 0xd800 || c > 0xdfff))) {
     return Lit("String", cs.map((c) => String.fromCodePoint(c)).join(""), s);
   }
   return cs.reduceRight<LTerm>((out, c) =>
@@ -1233,7 +1269,7 @@ export function u32_from_term<X>(tm: TermOf<X>, k: "U32" | "F32" = "U32"): numbe
   return n;
 }
 
-export function u64_from_term<X>(tm: TermOf<X>, k = "U64"): bigint | null {
+function u64_from_term<X>(tm: TermOf<X>, k: "U64" | "F64" = "U64"): bigint | null {
   const t = term_strip(tm);
   if (t.$ !== "Ctr" || t.k !== k || t.x.length !== (k === "F64" ? 1 : 2)) {
     return null;
@@ -1260,29 +1296,25 @@ export function f32_from_bits(n: U32): number {
   return F32_VIEW.getFloat32(0);
 }
 
-export function f64_of(v: number): bigint {
+function f64_of(v: number): bigint {
   F32_VIEW.setFloat64(0, v);
-  return v !== v ? 0x7FF8000000000000n : F32_VIEW.getBigUint64(0);
+  return F32_VIEW.getBigUint64(0);
 }
 
-export function f64_num(n: bigint): number {
+function f64_num(n: bigint): number {
   F32_VIEW.setBigUint64(0, n);
   return F32_VIEW.getFloat64(0);
 }
 
-export function f32_text(x: number, n = 9): string {
+// The shortest decimal that reads back to the same f32, as a literal (a
+// point before an e); nan, inf and -inf have none and print as such.
+function f32_show(x: number, n = 9): string {
   let s = "nan";
   for (let p = 1; x === x && p <= n
     && (n > 9 ? Number(s) : Math.fround(Number(s))) !== x; p += 1) {
     s = String(Number(x.toExponential(p - 1)));
   }
-  return (Object.is(x, -0) ? "-0" : s).replace("Infinity", "inf");
-}
-
-// The shortest decimal that reads back to the same f32, as a literal (a
-// point before an e); nan, inf and -inf have none and print as such.
-export function f32_show(x: number, n = 9): string {
-  return f32_text(x, n).replace(/^-?\d+(?=e|$)/, "$&.0");
+  return (Object.is(x, -0) ? "-0" : s).replace(/^-?\d+(?=e|$)/, "$&.0").replace("Infinity", "inf");
 }
 
 // Show
@@ -1292,20 +1324,9 @@ export function quant_show(q: Quant): string {
   return { None: "-", Lone: "", Many: "+" }[q.$];
 }
 
-export const ESCAPES: Record<string, U32> = {
+const ESCAPES: Record<string, U32> = {
   "n": 10, "t": 9, "r": 13, "0": 0, "\\": 92, "'": 39, '"': 34,
 };
-
-export function chr_show(n: U32, quote: string): string {
-  const k = Object.keys(ESCAPES).find((k) => ESCAPES[k] === n && ((k !== "'" && k !== '"') || k === quote));
-  if (k !== undefined) {
-    return "\\" + k;
-  }
-  if (n < 32 || n === 127 || !chr_ok(n)) {
-    return "\\u{" + n.toString(16) + "}";
-  }
-  return String.fromCodePoint(n);
-}
 
 export function term_key(tm: LTerm): string {
   return JSON.stringify(tm, (k, v) => k === "s" ? undefined : v);
@@ -1378,6 +1399,16 @@ export function term_show(term: LTerm, top: number = -1, bnd: Name[] = []): stri
       return null;
     }
     return l.concat(r);
+  }
+  function chr_show(n: U32, quote: string): string {
+    const k = Object.keys(ESCAPES).find((k) => ESCAPES[k] === n && ((k !== "'" && k !== '"') || k === quote));
+    if (k !== undefined) {
+      return "\\" + k;
+    }
+    if (n < 32 || n === 127 || (n >= 0xd800 && n <= 0xdfff) || n > 0x10ffff) {
+      return "\\u{" + n.toString(16) + "}";
+    }
+    return String.fromCodePoint(n);
   }
   function lit_text(v: string): string {
     return [...v].map((c) => chr_show(c.codePointAt(0) as U32, "\"")).join("");
@@ -2305,7 +2336,7 @@ export function parse_term_tup(p: Parse, beg: Loc): LTerm {
   return out;
 }
 
-const NUMBER = /(0x[\da-fA-F]+|\d+)(n|\.\d+([eE][+-]?\d+)?)?([uf]64)?/y;
+const NUMBER = /(\d+)(n|\.\d+([eE][+-]?\d+)?)?([uf]64)?/y;
 
 export function parse_term_num(p: Parse): LTerm {
   const beg = p.pos;
@@ -2318,8 +2349,8 @@ export function parse_term_num(p: Parse): LTerm {
     const v = Number(m[0].slice(0, -3));
     const x = f ? f64_of(v) : m[2] === undefined ? BigInt(s) : 1n << 64n;
     if (x >> 64n || !isFinite(v) || m[2] === "n" || char_is_name(parse_peek(p))) {
-      parse_fail(p, "a " + m[4] + " literal: a finite f64, or a u64 up to"
-        + " 18446744073709551615 (got " + m[0] + ")");
+      parse_fail(p, f ? "a float literal with a finite f64 value (got " + m[0] + ")"
+        : "a u64 literal up to 18446744073709551615 (got " + m[0] + ")");
     }
     const spn = parse_span(p, beg);
     const u: LTerm = Ctr("U64", [x, x >> 32n].map((h) =>
@@ -3150,6 +3181,16 @@ export function term_snf(book: Book, term: HTerm): HTerm {
     case "Sub": {
       return Sub(tm.i, tm.v.$ === "PVar" || tm.v.$ === "PCtr" ? tm.v : term_snf(book, tm.v), term_snf(book, tm.f), tm.s);
     }
+    case "Typ": {
+      return Typ(term_snf(book, tm.g), tm.s);
+    }
+    case "Qnt":
+    case "Qua": {
+      return tm;
+    }
+    case "Min": {
+      return Min(term_snf(book, tm.a), term_snf(book, tm.b), tm.s);
+    }
     case "All": {
       return All(tm.q, tm.k, tm.i, term_snf(book, tm.A), (x: HTerm) => {
         return term_snf(book, tm.B(x));
@@ -3163,8 +3204,32 @@ export function term_snf(book: Book, term: HTerm): HTerm {
     case "App": {
       return App(tm.f.$ === "Ref" ? tm.f : term_snf(book, tm.f), term_snf(book, tm.x), tm.s);
     }
-    default: {
-      return term_map(tm, (x) => term_snf(book, x));
+    case "ADT": {
+      return ADT(tm.k, tm.x.map((x) => term_snf(book, x)), tm.s, tm.r);
+    }
+    case "Ctr": {
+      return Ctr(tm.k, tm.x.map((x) => term_snf(book, x)), tm.s);
+    }
+    case "Lit": {
+      return tm;
+    }
+    case "Mat": {
+      return Mat(tm.k, term_snf(book, tm.h), term_snf(book, tm.m), tm.s);
+    }
+    case "Efq": {
+      return Efq(tm.s);
+    }
+    case "Eql": {
+      return Eql(term_snf(book, tm.a), term_snf(book, tm.b), term_snf(book, tm.T), tm.s);
+    }
+    case "Rfl": {
+      return Rfl(tm.s);
+    }
+    case "Rwt": {
+      return Rwt(term_snf(book, tm.e), term_snf(book, tm.p), term_snf(book, tm.f), tm.s);
+    }
+    case "Hol": {
+      return Hol(tm.k, tm.s);
     }
   }
 }
@@ -3234,14 +3299,27 @@ export function term_compare(mode: "EQ" | "LE", book: Book, lhs: HTerm, rhs: HTe
       }
       return term_compare("LE", book, g, h, dep);
     }
+    case "Qnt": {
+      return b.$ === "Qnt";
+    }
     case "Qua": {
       return b.$ === "Qua" && a.q.$ === b.q.$;
+    }
+    case "Min": {
+      return b.$ === "Min"
+          && term_compare("EQ", book, a.a, b.a, dep)
+          && term_compare("EQ", book, a.b, b.b, dep);
     }
     case "All": {
       const x: HTerm = Var(a.k, dep);
       return b.$ === "All" && a.q.$ === b.q.$
           && term_compare(mode, book, b.A, a.A, dep)
           && term_compare(mode, book, a.B(x), b.B(x), dep + 1);
+    }
+    case "App": {
+      return b.$ === "App"
+          && term_compare("EQ", book, a.f, b.f, dep)
+          && term_compare("EQ", book, a.x, b.x, dep);
     }
     case "ADT": {
       if (b.$ !== "ADT" || a.k !== b.k || a.x.length !== b.x.length) {
@@ -3253,27 +3331,38 @@ export function term_compare(mode: "EQ" | "LE", book: Book, lhs: HTerm, rhs: HTe
       return b.r.every((c) => a.r.includes(c))
           && a.x.every((x, j) => term_compare("EQ", book, x, b.x[j], dep));
     }
-    case "Lit": {
-      return b.$ === "Lit" && a.k === b.k && a.v === b.v;
-    }
-    case "App": {
-      return b.$ === "App"
-          && term_compare("EQ", book, a.f, b.f, dep)
-          && term_compare("EQ", book, a.x, b.x, dep);
-    }
     case "Ctr": {
       return b.$ === "Ctr" && a.k === b.k && a.x.length === b.x.length
           && a.x.every((x, j) => term_compare("EQ", book, x, b.x[j], dep));
     }
-    case "Qnt": case "Min": case "Mat": case "Efq": case "Eql": case "Rfl":
-    case "Hol": case "Rwt": {
-      const xs: HTerm[] = [];
-      const ys: HTerm[] = [];
-      term_map(a, (x) => (xs.push(x), x));
-      term_map(b, (y) => (ys.push(y), y));
-      return a.$ === b.$ && ("k" in a && a.k) === ("k" in b && b.k)
-          && xs.length === ys.length
-          && xs.every((x, j) => term_compare("EQ", book, x, ys[j], dep));
+    case "Lit": {
+      return b.$ === "Lit" && a.k === b.k && a.v === b.v;
+    }
+    case "Mat": {
+      return b.$ === "Mat" && a.k === b.k
+          && term_compare("EQ", book, a.h, b.h, dep)
+          && term_compare("EQ", book, a.m, b.m, dep);
+    }
+    case "Efq": {
+      return b.$ === "Efq";
+    }
+    case "Eql": {
+      return b.$ === "Eql"
+          && term_compare("EQ", book, a.a, b.a, dep)
+          && term_compare("EQ", book, a.b, b.b, dep)
+          && term_compare("EQ", book, a.T, b.T, dep);
+    }
+    case "Rfl": {
+      return b.$ === "Rfl";
+    }
+    case "Hol": {
+      return b.$ === "Hol" && a.k === b.k;
+    }
+    case "Rwt": {
+      return b.$ === "Rwt"
+          && term_compare("EQ", book, a.e, b.e, dep)
+          && term_compare("EQ", book, a.p, b.p, dep)
+          && term_compare("EQ", book, a.f, b.f, dep);
     }
     default: {
       return false;

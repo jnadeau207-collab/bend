@@ -1074,24 +1074,32 @@ def Word.not(n: Nat, w: Word(n)) -> Word(n):
         case WCon{b, t}:
           WCon{Bool.not(b), Word.not(p, t)}
 
-def Word.zip(~f: Bool -> Bool -> Bool, n: Nat, a: Word(n), b: Word(n)) ->
-  Word(n):
+def Word.and(n: Nat, a: Word(n), b: Word(n)) -> Word(n):
   match n:
     case 0n:
       WNil{}
     case 1n+p:
       match a b:
         case WCon{ab, at} WCon{bb, bt}:
-          WCon{f(ab, bb), Word.zip(~f, p, at, bt)}
-
-def Word.and(n: Nat, a: Word(n), b: Word(n)) -> Word(n):
-  Word.zip(~Bool.and, n, a, b)
+          WCon{Bool.and(ab, bb), Word.and(p, at, bt)}
 
 def Word.or(n: Nat, a: Word(n), b: Word(n)) -> Word(n):
-  Word.zip(~Bool.or, n, a, b)
+  match n:
+    case 0n:
+      WNil{}
+    case 1n+p:
+      match a b:
+        case WCon{ab, at} WCon{bb, bt}:
+          WCon{Bool.or(ab, bb), Word.or(p, at, bt)}
 
 def Word.xor(n: Nat, a: Word(n), b: Word(n)) -> Word(n):
-  Word.zip(~Bool.xor, n, a, b)
+  match n:
+    case 0n:
+      WNil{}
+    case 1n+p:
+      match a b:
+        case WCon{ab, at} WCon{bb, bt}:
+          WCon{Bool.xor(ab, bb), Word.xor(p, at, bt)}
 
 def Word.shl.put(n: Nat, c: Bool, w: Word(n)) -> Word(n):
   match n:
@@ -1696,9 +1704,6 @@ def F32.from_nat(n: Nat) -> F32:
 def F32.to_nat(a: F32) -> Nat:
   U32.to_nat(F32.to_u32(a))
 
-# U64
-# ---
-
 def U64.of(+w: Word(64n)) -> U64:
   U64{U32{Word.take(32n, 32n, w)}, U32{Word.drop(32n, 32n, w)}}
 
@@ -1796,7 +1801,7 @@ def U64.to_u32(a: U64) -> U32:
   U64{l, h} = a
   l
 
-def U64.bit(b: Bool) -> U64:
+def Bool.to_u64(b: Bool) -> U64:
   U32.to_u64(Bool.to_u32(b))
 
 def Word.clz.fin(+p: Nat, b: Bool, +c: Nat) -> Nat:
@@ -1813,29 +1818,31 @@ def U64.clz(a: U64) -> U32:
   U32.from_nat(Word.clz(64n, U64.word(a)))
 
 def U64.mul_hi(a: U64, b: U64) -> U64:
-  U64.of(Word.drop(64n, 64n, Word.mul(128n,
-    Word.cat(64n, 64n, U64.word(a), Word.zero(64n)),
-    Word.cat(64n, 64n, U64.word(b), Word.zero(64n)))))
+  match a b:
+    case U64{+al, +ah} U64{+bl, +bh}:
+      +m = (U32.to_u64(al) * U32.to_u64(bh) : U64)
+      +n = (U32.to_u64(ah) * U32.to_u64(bl) : U64)
+      +c = ((U32.to_u64(al) * U32.to_u64(bl) >> 32n) + (m << 32n >> 32n)
+        + (n << 32n >> 32n) : U64)
+      (U32.to_u64(ah) * U32.to_u64(bh) + (m >> 32n) + (n >> 32n)
+        + (c >> 32n) : U64)
 
 def U64.shr_jam(+a: U64, +n: Nat) -> U64:
   +s = (a >> n : U64)
-  (s .|. U64.bit((s << n < a : U64)) : U64)
+  (s .|. Bool.to_u64((s << n < a : U64)) : U64)
 
-def U64.sj(+h: U64, +l: U64, +t: U32) -> U64:
+def U64.wide_jam(+h: U64, +l: U64, +t: U32) -> U64:
   +lo = U64.shr_jam(l, U32.to_nat(t))
   +hi = U64.shr_jam(h, U32.to_nat((t - 64 : U32)))
   Bool.pick(U64, (t < 64 : U32), (h << U32.to_nat((64 - t : U32)) .|. lo : U64),
-    (hi .|. U64.bit((0u64 < l : U64)) : U64))
-
-# F64
-# ---
+    (hi .|. Bool.to_u64((0u64 < l : U64)) : U64))
 
 def F64.bits(a: F64) -> U64:
   F64{b} = a
   b
 
-def F64.sgn(s: Bool, x: U64) -> F64:
-  F64{(x .|. U64.bit(s) << 63n : U64)}
+def F64.with_sign(s: Bool, x: U64) -> F64:
+  F64{(x .|. Bool.to_u64(s) << 63n : U64)}
 
 def F64.sign(a: F64) -> Bool:
   (1u64 << 63n <= F64.bits(a) : U64)
@@ -1850,30 +1857,31 @@ def F64.is_nan(a: F64) -> Bool:
   (2047u64 << 52n < F64.bits(F64.abs(a)) : U64)
 
 def F64.nan() -> F64:
-  F64{0x7ff8000000000000u64}
+  F64{(4095u64 << 51n : U64)}
 
-def F64.cls(a: F64) -> U32:
+def F64.class(a: F64) -> U32:
   +m = F64.bits(F64.abs(a))
   +i = (2047u64 << 52n : U64)
   +f = Bool.to_u32((0u64 < m : U64))
   (f + Bool.to_u32((i <= m : U64)) + Bool.to_u32((i < m : U64)) : U32)
 
-def F64.put(+c: U32, s: Bool) -> F64:
-  Bool.pick(F64, U32.is_eq(c, 3), F64.nan(), F64.sgn(s,
+def F64.of_class(+c: U32, s: Bool) -> F64:
+  Bool.pick(F64, U32.is_eq(c, 3), F64.nan(), F64.with_sign(s,
     (U32.to_u64(c) / 2u64 * 2047u64 << 52n : U64)))
 
-def F64.x(+a: F64) -> U64:
-  +n = U64.bit((0u64 < F64.bits(a) << 1n >> 53n : U64))
+def F64.sig(+a: F64) -> U64:
+  +n = Bool.to_u64((0u64 < F64.bits(a) << 1n >> 53n : U64))
   (F64.bits(a) << 12n >> 12n .|. n << 52n : U64)
 
-def F64.k(+a: F64) -> U32:
-  (U64.clz(F64.x(a)) - 11 : U32)
+def F64.shift(+a: F64) -> U32:
+  (U64.clz(F64.sig(a)) - 11 : U32)
 
-def F64.m(+a: F64) -> U64:
-  (F64.x(a) << U32.to_nat(F64.k(a)) : U64)
+def F64.mant(+a: F64) -> U64:
+  (F64.sig(a) << U32.to_nat(F64.shift(a)) : U64)
 
-def F64.e(+a: F64) -> U32:
-  (U32.max(U64.to_u32((F64.bits(a) << 1n >> 53n : U64)), 1) - F64.k(a) : U32)
+def F64.expo(+a: F64) -> U32:
+  (U32.max(U64.to_u32((F64.bits(a) << 1n >> 53n : U64)), 1)
+    - F64.shift(a) : U32)
 
 def F64.pack(+e: U32, +m: U64, +k: Nat, +w: Nat, +inf: U64) -> U64:
   +neg = (2147483647 < e : U32)
@@ -1881,67 +1889,68 @@ def F64.pack(+e: U32, +m: U64, +k: Nat, +w: Nat, +inf: U64) -> U64:
     64))), m)
   +h = (1u64 << Nat.sub(k, 1n) : U64)
   +t = U64.is_eq((x .&. h * 2u64 - 1u64 : U64), h)
-  +r = ((x + h) >> k .&. U64.not(U64.bit(t)) : U64)
+  +r = ((x + h) >> k .&. U64.not(Bool.to_u64(t)) : U64)
   U64.min(inf, (r + (U32.to_u64(Bool.pick(U32, neg, 0, e)) << w) : U64))
 
-def F64.round(s: Bool, e: U32, +m: U64) -> F64:
+def F64.make(s: Bool, e: U32, +m: U64) -> F64:
   +k = (U64.clz(m) - 1 : U32)
-  F64.sgn(s, F64.pack((e - k : U32), (m << U32.to_nat(k) : U64), 10n, 52n,
-    0x7ff0000000000000u64))
+  F64.with_sign(s, F64.pack((e - k : U32), (m << U32.to_nat(k) : U64), 10n, 52n,
+    (2047u64 << 52n : U64)))
 
-def F64.lat(+t: U32, +u: U32) -> U32:
+def F64.prod_class(+t: U32, +u: U32) -> U32:
   +hi = U32.max(t, u)
   +z = U32.is_zero(U32.min(t, u))
   Bool.pick(U32, (2 < hi || z && U32.is_eq(hi, 2) : U32), 3,
     Bool.pick(U32, z, 0, hi))
 
-def F64.neg2(c: Bool, +h: U64, +l: U64) -> U64 & U64:
-  Bool.pick(U64 & U64, c, ((U64.not(h) + U64.bit(U64.is_zero(l)) : U64),
+def U64.wide_neg(c: Bool, +h: U64, +l: U64) -> U64 & U64:
+  Bool.pick(U64 & U64, c, ((U64.not(h) + Bool.to_u64(U64.is_zero(l)) : U64),
     (0u64 - l : U64)), (h, l))
 
 def F64.fma.fin(s: Bool, +f: U32, z: U64 & U64) -> F64:
   (+h, +l) = z
   +n = (U64.clz(h) + Bool.pick(U32, U64.is_zero(h), U64.clz(l), 0) - 1 : U32)
-  +m = Bool.pick(U64, (n < 64 : U32), U64.sj(h, l, (64 - n : U32)),
+  +m = Bool.pick(U64, (n < 64 : U32), U64.wide_jam(h, l, (64 - n : U32)),
     (l << U32.to_nat((n - 64 : U32)) : U64))
   Bool.pick(F64, U64.is_zero((h .|. l : U64)), F64{0u64},
-    F64.round(s, (f + 1148 - n : U32), m))
+    F64.make(s, (f + 1148 - n : U32), m))
 
 def F64.fma.add(s: Bool, f: U32, +xh: U64, +xl: U64, y: U64 & U64) -> F64:
   (yh, yl) = y
   +zl = (xl + yl : U64)
-  +zh = (xh + yh + U64.bit((zl < xl : U64)) : U64)
+  +zh = (xh + yh + Bool.to_u64((zl < xl : U64)) : U64)
   +neg = (1u64 << 63n <= zh : U64)
-  F64.fma.fin(Bool.xor(s, neg), f, F64.neg2(neg, zh, zl))
+  F64.fma.fin(Bool.xor(s, neg), f, U64.wide_neg(neg, zh, zl))
 
 def F64.fma.sum(+a: F64, +b: F64, +c: F64) -> F64:
-  +ma = F64.m(a)
-  +mb = F64.m(b)
+  +ma = F64.mant(a)
+  +mb = F64.mant(b)
   +pl = (ma * mb : U64)
   +xh = (U64.mul_hi(ma, mb) << 20n .|. pl >> 44n : U64)
-  +yh = (F64.m(c) << 9n : U64)
-  +t = (F64.e(c) + 1022 - F64.e(a) - F64.e(b) : U32)
+  +yh = (F64.mant(c) << 9n : U64)
+  +t = (F64.expo(c) + 1022 - F64.expo(a) - F64.expo(b) : U32)
   +up = Bool.and((t - 1 < 2147483647 : U32), (0u64 < yh : U64))
   +tx = Bool.pick(U32, up, U32.min(t, 128), 0)
   +ty = Bool.pick(U32, up, 0, U32.min((0 - t : U32), 128))
   +d = Bool.xor(F64.sign(a), F64.sign(b))
-  +f = Bool.pick(U32, up, (F64.e(c) - 1148 : U32),
-    (F64.e(a) + F64.e(b) - 2170 : U32))
-  F64.fma.add(d, f, (xh >> U32.to_nat(tx) : U64), U64.sj(xh, (pl << 20n : U64),
-    tx), F64.neg2(Bool.xor(d, F64.sign(c)), (yh >> U32.to_nat(ty) : U64),
-    U64.sj(yh, 0u64, ty)))
+  +f = Bool.pick(U32, up, (F64.expo(c) - 1148 : U32),
+    (F64.expo(a) + F64.expo(b) - 2170 : U32))
+  F64.fma.add(d, f, (xh >> U32.to_nat(tx) : U64),
+    U64.wide_jam(xh, (pl << 20n : U64), tx), U64.wide_neg(Bool.xor(d,
+    F64.sign(c)), (yh >> U32.to_nat(ty) : U64), U64.wide_jam(yh, 0u64, ty)))
 
 def F64.fma(+a: F64, +b: F64, +c: F64) -> F64:
-  +p = F64.lat(F64.cls(a), F64.cls(b))
-  +q = F64.cls(c)
+  +p = F64.prod_class(F64.class(a), F64.class(b))
+  +q = F64.class(c)
   +sp = Bool.xor(F64.sign(a), F64.sign(b))
   +sc = F64.sign(c)
   +inf = U32.is_eq((p + q : U32), 4)
   +nan = (2 < U32.max(p, q) || inf && Bool.xor(sp, sc) : U32)
   +z = U32.is_zero(p)
-  Bool.pick(F64, nan, F64.nan(), Bool.pick(F64, U32.is_eq(p, 2), F64.put(2, sp),
-    Bool.pick(F64, (U32.is_eq(q, 2) || z && U32.is_ne(q, 0)), c, Bool.pick(F64,
-    z, F64.put(0, Bool.and(sp, sc)), F64.fma.sum(a, b, c)))))
+  Bool.pick(F64, nan, F64.nan(), Bool.pick(F64, U32.is_eq(p, 2),
+    F64.of_class(2, sp), Bool.pick(F64, (U32.is_eq(q, 2)
+    || z && U32.is_ne(q, 0)), c, Bool.pick(F64, z,
+    F64.of_class(0, Bool.and(sp, sc)), F64.fma.sum(a, b, c)))))
 
 def F64.add(a: F64, b: F64) -> F64:
   F64.fma(a, 1.0f64, b)
@@ -1955,37 +1964,38 @@ def F64.mul(a: F64, b: F64) -> F64:
 def F64.div.go(n: Nat, +b: U64, q: U64, +r: U64) -> U64:
   match n:
     case 0n:
-      (q .|. U64.bit((0u64 < r : U64)) : U64)
+      (q .|. Bool.to_u64((0u64 < r : U64)) : U64)
     case 1n+p:
       +ge = (b <= r : U64)
-      F64.div.go(p, b, (q * 2u64 + U64.bit(ge) : U64),
+      F64.div.go(p, b, (q * 2u64 + Bool.to_u64(ge) : U64),
         (Bool.pick(U64, ge, (r - b : U64), r) * 2u64 : U64))
 
 def F64.div(+a: F64, +b: F64) -> F64:
-  +p = F64.lat(F64.cls(a), (2 - F64.cls(b) : U32))
+  +p = F64.prod_class(F64.class(a), (2 - F64.class(b) : U32))
   +s = Bool.xor(F64.sign(a), F64.sign(b))
-  +q = F64.div.go(63n, F64.m(b), 0u64, F64.m(a))
-  +e = (F64.e(a) - F64.e(b) + 1022 : U32)
-  Bool.pick(F64, U32.is_eq(p, 1), F64.round(s, e, q), F64.put(p, s))
+  +q = F64.div.go(63n, F64.mant(b), 0u64, F64.mant(a))
+  +e = (F64.expo(a) - F64.expo(b) + 1022 : U32)
+  Bool.pick(F64, U32.is_eq(p, 1), F64.make(s, e, q), F64.of_class(p, s))
 
 def F64.sqrt.go(n: Nat, +m: U64, +q: U64, +r: U64) -> U64:
   match n:
     case 0n:
-      (q << 8n .|. U64.bit((0u64 < r : U64)) : U64)
+      (q << 8n .|. Bool.to_u64((0u64 < r : U64)) : U64)
     case 1n+p:
       +t = (r << 2n .|. m >> 52n : U64)
       +c = (q << 2n .|. 1u64 : U64)
       +ge = (c <= t : U64)
-      F64.sqrt.go(p, (m << 2n .&. 0x003fffffffffffffu64 : U64),
-        (q * 2u64 + U64.bit(ge) : U64), Bool.pick(U64, ge, (t - c : U64), t))
+      F64.sqrt.go(p, (m << 12n >> 10n : U64),
+        (q * 2u64 + Bool.to_u64(ge) : U64),
+        Bool.pick(U64, ge, (t - c : U64), t))
 
 def F64.sqrt(+a: F64) -> F64:
-  +c = F64.cls(a)
-  +e = F64.e(a)
+  +c = F64.class(a)
+  +e = F64.expo(a)
   +odd = (e .&. 1 .^. 1 : U32)
-  +r = F64.sqrt.go(55n, (F64.m(a) << U32.to_nat(odd) : U64), 0u64, 0u64)
+  +r = F64.sqrt.go(55n, (F64.mant(a) << U32.to_nat(odd) : U64), 0u64, 0u64)
   Bool.pick(F64, (U32.is_eq(c, 1) && Bool.not(F64.sign(a))),
-    F64.round(False{}, ((e + 973 - odd) / 2 + 24 : U32), r), Bool.pick(F64,
+    F64.make(False{}, ((e + 973 - odd) / 2 + 24 : U32), r), Bool.pick(F64,
     (U32.is_eq(c, 3) || F64.sign(a) && U32.is_ne(c, 0)), F64.nan(), a))
 
 def F64.key(+a: F64) -> U64:
@@ -2017,7 +2027,7 @@ def F64.is_ge(a: F64, b: F64) -> Bool:
 def U64.to_f64(+u: U64) -> F64:
   +t = Bool.to_u32((1u64 << 63n <= u : U64))
   +m = U64.shr_jam(u, U32.to_nat(t))
-  Bool.pick(F64, U64.is_zero(u), F64{0u64}, F64.round(False{}, (1084 + t : U32),
+  Bool.pick(F64, U64.is_zero(u), F64{0u64}, F64.make(False{}, (1084 + t : U32),
     m))
 
 def U32.to_f64(a: U32) -> F64:
@@ -2033,17 +2043,17 @@ def F32.to_f64(f: F32) -> F64:
   +e = (b << 1n >> 24n : U32)
   +m = U32.to_u64((b << 9n >> 9n : U32))
   +s = (2147483647 < b : U32)
-  +x = F64.round(s, (U32.max(e, 1) + 934 : U32),
-    (m .|. U64.bit((0 < e : U32)) << 23n : U64))
+  +x = F64.make(s, (U32.max(e, 1) + 934 : U32),
+    (m .|. Bool.to_u64((0 < e : U32)) << 23n : U64))
   Bool.pick(F64, U32.is_eq(e, 255), Bool.pick(F64, U64.is_zero(m),
-    F64.put(2, s), F64.nan()), Bool.pick(F64, (U32.is_zero(e) &&
-    U64.is_zero(m)), F64.put(0, s), x))
+    F64.of_class(2, s), F64.nan()), Bool.pick(F64, (U32.is_zero(e) &&
+    U64.is_zero(m)), F64.of_class(0, s), x))
 
 def F64.to_u64(+a: F64) -> U64:
-  +e = F64.e(a)
-  +up = (F64.m(a) << U32.to_nat((e - 1075 : U32)) : U64)
-  +dn = (F64.m(a) >> U32.to_nat(U32.min((1075 - e : U32), 64)) : U64)
-  Bool.pick(U64, (F64.sign(a) || 1 < F64.cls(a) || 1086 < e : U32), 0u64,
+  +e = F64.expo(a)
+  +up = (F64.mant(a) << U32.to_nat((e - 1075 : U32)) : U64)
+  +dn = (F64.mant(a) >> U32.to_nat(U32.min((1075 - e : U32), 64)) : U64)
+  Bool.pick(U64, (F64.sign(a) || 1 < F64.class(a) || 1086 < e : U32), 0u64,
     Bool.pick(U64, (1075 <= e : U32), up, dn))
 
 def F64.to_u32(+a: F64) -> U32:
@@ -2051,10 +2061,10 @@ def F64.to_u32(+a: F64) -> U32:
   Bool.pick(U32, (u < 4294967296u64 : U64), U64.to_u32(u), 0)
 
 def F64.to_f32(+a: F64) -> F32:
-  +x = F64.pack((F64.e(a) - 897 : U32), (F64.m(a) << 10n : U64), 39n, 23n,
-    0x7f800000u64)
-  F32.from_bits(U64.to_u32(Bool.pick(U64, F64.is_nan(a), 0x7fc00000u64,
-    (x .|. U64.bit(F64.sign(a)) << 31n : U64))))
+  +x = F64.pack((F64.expo(a) - 897 : U32), (F64.mant(a) << 10n : U64), 39n, 23n,
+    (255u64 << 23n : U64))
+  F32.from_bits(U64.to_u32(Bool.pick(U64, F64.is_nan(a), (511u64 << 22n : U64),
+    (x .|. Bool.to_u64(F64.sign(a)) << 31n : U64))))
 
 def F64.min(+a: F64, +b: F64) -> F64:
   Bool.pick(F64, F64.is_lt(a, b), a, b)
@@ -2413,16 +2423,81 @@ def Nat.show(n: Nat) -> String:
   +m = n
   Nat.show.fin(m, SNil{}, Nat.show.put(Nat.divmod(m, 10n)))
 
+def Nat.read.if(v: U64, ok: Bool) -> Maybe<&2, Nat>:
+  match ok:
+    case True{}:
+      Some{U64.to_nat(v)}
+    case False{}:
+      None{}
+
 def Nat.read.of(m: Maybe<&2, U64>) -> Maybe<&2, Nat>:
   match m:
     case Some{+v}:
-      Bool.pick(Maybe<&2, Nat>, U64.is_lt(v, 281474976710656u64),
-        Some{U64.to_nat(v)}, None{})
+      Nat.read.if(v, U64.is_lt(v, 281474976710656u64))
     case None{}:
       None{}
 
 def Nat.read(s: String) -> Maybe<&2, Nat>:
   Nat.read.of(U64.read(s))
+
+law U32.show.go:
+  for f   : Nat
+  for +n  : U32
+  for acc : String
+  String
+
+def U32.show.fin(g: Nat, acc: String, +n: U32, z: Bool) -> String:
+  match z:
+    case True{}:
+      acc
+    case False{}:
+      U32.show.go(g, U32.div(n, 10),
+        SCon{Chr{U32.add(48, U32.mod(n, 10))}, acc})
+
+def U32.show.go(f, n, acc):
+  match f:
+    case 0n:
+      acc
+    case 1n+g:
+      U32.show.fin(g, acc, n, U32.is_zero(n))
+
+def U32.show.if(a: U32, z: Bool) -> String:
+  match z:
+    case True{}:
+      SCon{Chr{48}, SNil{}}
+    case False{}:
+      U32.show.go(10n, a, SNil{})
+
+def U32.show(a: U32) -> String:
+  +b = a
+  U32.show.if(b, U32.is_zero(b))
+
+law U32.read.go:
+  for s   : String
+  for +acc : U32
+  Maybe<&2, U32>
+
+def U32.read.if(t: String, n: U32, ok: Bool) -> Maybe<&2, U32>:
+  match ok:
+    case True{}:
+      U32.read.go(t, n)
+    case False{}:
+      None{}
+
+def U32.read.go(s, acc):
+  match s:
+    case SNil{}:
+      Some{acc}
+    case SCon{Chr{x}, t}:
+      +n = U32.add(U32.mul(acc, 10), U32.sub(x, 48))
+      U32.read.if(t, n, U32.is_eq(U32.div(n, 10), acc))
+
+def U32.read(s: String) -> Maybe<&2, U32>:
+  match s:
+    case SNil{}:
+      None{}
+    case SCon{h, t}:
+      U32.read.go(SCon{h, t}, 0)
 
 law U64.show.go:
   for f   : Nat
@@ -2456,9 +2531,6 @@ def U64.show(a: U64) -> String:
   +b = a
   U64.show.if(b, U64.is_zero(b))
 
-def U32.show(a: U32) -> String:
-  U64.show(U32.to_u64(a))
-
 law U64.read.go:
   for s   : String
   for +acc : U64
@@ -2485,17 +2557,6 @@ def U64.read(s: String) -> Maybe<&2, U64>:
       None{}
     case SCon{h, t}:
       U64.read.go(SCon{h, t}, 0u64)
-
-def U32.read.of(m: Maybe<&2, U64>) -> Maybe<&2, U32>:
-  match m:
-    case Some{+v}:
-      Bool.pick(Maybe<&2, U32>, U64.is_lt(v, 4294967296u64),
-        Some{U64.to_u32(v)}, None{})
-    case None{}:
-      None{}
-
-def U32.read(s: String) -> Maybe<&2, U32>:
-  U32.read.of(U64.read(s))
 
 def Bool.show(b: Bool) -> String:
   match b:
