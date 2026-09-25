@@ -710,6 +710,8 @@ const FLATS: Map<Name, boolean> = new Map();
 
 const SIGS: Map<string, Sig> = new Map();
 
+const OPS: Map<Name, string> = new Map();
+
 const BRWS: Map<Name, boolean[]> = new Map();
 
 const SPINES: Map<HTerm, Spine> = new Map();
@@ -940,7 +942,8 @@ function term_nodes(cf: Carb, t: HTerm): number {
 function term_const(t: HTerm): boolean {
   const s = Bend.term_strip(t);
   return s.$ === "Lit" ? lit_call(s) === null
-    : s.$ === "Ctr" && memo(CONSTS, s, () => s.x.every(term_const));
+    : s.$ === "Ctr" && (s.x.length === 0
+      || memo(CONSTS, s, () => s.x.every(term_const)));
 }
 
 function term_use(u: UMap, p: Probe): number {
@@ -1080,8 +1083,11 @@ function lay_of(book: Bend.Book, A: HTerm | null): Lay {
   if (t === null) {
     return BOX;
   }
+  if (WORDS[t.k] !== undefined) {
+    return WORDS[t.k];
+  }
   const key = Bend.term_key(Bend.term_lower(t));
-  return WORDS[t.k] ?? memo(LAYS, key, () => {
+  return memo(LAYS, key, () => {
     const tld = book.tlds[t.k];
     if (t.k === "Array" || t.k === "IO.OP" || tld?.$ !== "ADT"
       || lay_cyclic(book, t.k)) {
@@ -1339,7 +1345,7 @@ function def_foreign(tld: Bend.TLD | undefined):
 // ==
 
 function op_name(k: Name): string {
-  return k.toLowerCase().replace(/[./]/g, "_");
+  return memo(OPS, k, () => k.toLowerCase().replace(/[./]/g, "_"));
 }
 
 // Io
