@@ -1,0 +1,57 @@
+Bend numeric conformance: conformance/run.sh, D=20, every step
+code       bend2 tree ad7586f1d9906893d186df9af960182b98c192b8, at commit 31aab48f576c1a1abdc423275cc729b707b878be
+date       2026-09-25T17:20Z
+host       Linux 6.18.33.2-microsoft-standard-WSL2, AMD Ryzen 7 7800X3D 8-Core Processor
+toolchain  bun 1.4.2, clang 20.1.2, python 3.14.4, numpy 2.5.3
+device     NVIDIA GeForce RTX 4070 SUPER driver 591.86, NVRTC 12.9.86
+vectors    2^20 cases per differential group, 22 groups, the splitmix64 stream from index 0 (no seed); the interpreter at 2^2
+programs   d20.bend e8949cf949af6ba0, d2.bend 9ec5529a3d10b76b, text.bend 482a53edda9c15bd, probe_f64.bend 3f675b870e94916f, probe_u64.bend 43d2aebdee90ecf1, probe_u64ops.bend 37f3d334476666c5
+lane js
+  diff     2^20 x 22 groups: 22 groups, 0 mismatches (56 s)
+  probe    f64: 23 groups, 0 mismatches
+  probe    u64ops: 23 groups, 0 mismatches
+  probe    u64: 12 groups, 0 mismatches
+  text     3170 values shown and read back, 37 decimal literals and reads: 0 mismatches
+lane c
+  diff     2^20 x 22 groups: 22 groups, 0 mismatches (2 s)
+  probe    f64: 23 groups, 0 mismatches
+  probe    u64ops: 23 groups, 0 mismatches
+  probe    u64: 12 groups, 0 mismatches
+  text     3170 values shown and read back, 37 decimal literals and reads: 0 mismatches
+lane cuda
+  diff     2^20 x 22 groups: 22 groups, 0 mismatches (8 s)
+  probe    f64: 23 groups, 0 mismatches
+  probe    u64: 12 groups, 0 mismatches
+  test     u64_transport: pass
+  test     f64_fork: pass
+  test     f64_transport: pass
+lane cuda-defs
+  diff     2^20 x 22 groups: 22 groups, 0 mismatches (8 s)
+  defs     27 soft-native call sites of the diff program compiled as their Base defs
+  probe    f64: 23 groups, 0 mismatches
+  probe    u64: 12 groups, 0 mismatches
+  test     u64_transport: pass
+  test     f64_fork: pass
+  test     f64_transport: pass
+lane c-defs
+  diff     2^20 x 22 groups: 22 groups, 0 mismatches (2 s)
+  defs     27 soft-native call sites of the diff program compiled as their Base defs
+  probe    f64: 23 groups, 0 mismatches
+  probe    u64ops: 23 groups, 0 mismatches
+  probe    u64: 12 groups, 0 mismatches
+  test     u64_ops: pass
+  test     u64_transport: pass
+  test     f64_fork: pass
+  test     f64_ops: pass
+  test     f64_transport: pass
+lane interp
+  diff     2^2 x 22 groups: 22 groups, 0 mismatches (21 s)
+  probe    u64ops: 23 groups, 0 mismatches
+  probe    u64: 12 groups, 0 mismatches
+metal
+  d20.metal.c: 9721 lines kept for Metal, 0 with double, __int128 or __umul64hi
+  f64_fork.metal.c: 3160 lines kept for Metal, 0 with double, __int128 or __umul64hi
+  f64_ops.metal.c: 4244 lines kept for Metal, 0 with double, __int128 or __umul64hi
+  f64_transport.metal.c: 1413 lines kept for Metal, 0 with double, __int128 or __umul64hi
+  u64_ops.metal.c: 1346 lines kept for Metal, 0 with double, __int128 or __umul64hi
+  u64_transport.metal.c: 1373 lines kept for Metal, 0 with double, __int128 or __umul64hi
