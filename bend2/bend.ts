@@ -70,6 +70,7 @@
 // U32    | NUMBER                     | Lit, read as U32{WCon{b, ..WNil{}}}
 // F32    | NUMBER "." NUMBER [EXP]    | Lit, read as F32{WCon{b, ..WNil{}}}
 // U64    | NUMBER "u64"               | U64{lo, hi}, U32 Lits of its halves
+// F64    | (NUMBER | F32's) "f64"     | F64{U64{lo, hi}}, its binary64 bits
 // Chr    | "'" CHAR "'"               | Chr{U32}, its U32 a Lit
 // Str    | "\"" [CHAR] "\""           | Lit, read as SCon{Chr, ..SNil{}}
 // Index  | x "[" i "]" ("<-" v)?      | Array.get(U32, x, i), ..set(..)
@@ -1138,10 +1139,13 @@ export function u32_from_term<X>(tm: TermOf<X>, k: "U32" | "F32" = "U32"): numbe
   return n;
 }
 
-function u64_from_term<X>(tm: TermOf<X>): bigint | null {
+function u64_from_term<X>(tm: TermOf<X>, k: "U64" | "F64" = "U64"): bigint | null {
   const t = term_strip(tm);
-  if (t.$ !== "Ctr" || t.k !== "U64" || t.x.length !== 2) {
+  if (t.$ !== "Ctr" || t.k !== k || t.x.length !== (k === "F64" ? 1 : 2)) {
     return null;
+  }
+  if (k === "F64") {
+    return u64_from_term(t.x[0]);
   }
   const [lo, hi] = t.x.map((x) => u32_from_term(x));
   return lo === null || hi === null ? null : BigInt(hi) << 32n | BigInt(lo);
@@ -1150,7 +1154,7 @@ function u64_from_term<X>(tm: TermOf<X>): bigint | null {
 // F32
 // ===
 
-const F32_VIEW = new DataView(new ArrayBuffer(4));
+const F32_VIEW = new DataView(new ArrayBuffer(8));
 
 export function f32_to_bits(v: number): U32 {
   F32_VIEW.setFloat32(0, v);
@@ -1160,6 +1164,16 @@ export function f32_to_bits(v: number): U32 {
 export function f32_from_bits(n: U32): number {
   F32_VIEW.setUint32(0, n);
   return F32_VIEW.getFloat32(0);
+}
+
+function f64_of(v: number): bigint {
+  F32_VIEW.setFloat64(0, v);
+  return F32_VIEW.getBigUint64(0);
+}
+
+function f64_num(n: bigint): number {
+  F32_VIEW.setBigUint64(0, n);
+  return F32_VIEW.getFloat64(0);
 }
 
 // f32_round rounds a decimal text to the nearest f32, once. Number rounds
@@ -1188,8 +1202,9 @@ export function f32_round(s: string): number {
 
 // Show
 // ====
-// f32_show prints the shortest decimal that reads back to the same f32,
-// as a literal (a point before an e); nan, inf and -inf print as such.
+// f32_show prints the shortest decimal that reads back to the same f32
+// (an f64 at n = 17 digits), as a literal (a point before an e); nan, inf
+// and -inf print as such.
 
 export function quant_show(q: Quant): string {
   return { None: "-", Lone: "", Many: "+" }[q.$];
@@ -1203,9 +1218,10 @@ export function term_key(tm: LTerm): string {
   return JSON.stringify(tm, (k, v) => k === "s" ? undefined : v);
 }
 
-function f32_show(x: number): string {
+function f32_show(x: number, n = 9): string {
   let s = "nan";
-  for (let p = 1; x === x && p <= 9 && f32_round(s) !== x; p += 1) {
+  for (let p = 1; x === x && p <= n
+    && (n > 9 ? Number(s) : f32_round(s)) !== x; p += 1) {
     s = String(Number(x.toExponential(p - 1)));
   }
   return (Object.is(x, -0) ? "-0" : s).replace(/^-?\d+(?=e|$)/, "$&.0").replace("Infinity", "inf");
@@ -1401,10 +1417,12 @@ export function term_show(term: LTerm, top: number = -1, bnd: Name[] = [], file?
         const u32 = u32_from_term(tm);
         const f32 = u32_from_term(tm, "F32");
         const u64 = u64_from_term(tm);
+        const f64 = u64_from_term(tm, "F64");
         const chr = term_show_sugar_chr(tm, "'");
         const arr = term_show_sugar_arr(tm);
         const sug = u32 !== null ? String(u32) : f32 !== null ? f32_show(f32_from_bits(f32))
                  : u64 !== null ? u64 + "u64"
+                 : f64 !== null ? f32_show(f64_num(f64), 17) + "f64"
                  : term_show_sugar_nat(tm, prc)
                  ?? (chr !== null ? "'" + chr + "'" : null)
                  ?? term_show_sugar_str(tm)
@@ -2204,7 +2222,7 @@ export function parse_term_tup(p: Parse, beg: number): LTerm {
   return out;
 }
 
-const NUMBER = /(\d+)(n|\.\d+([eE][+-]?\d+)?)?(u64)?/y;
+const NUMBER = /(\d+)(n|\.\d+([eE][+-]?\d+)?)?([uf]64)?/y;
 
 export function parse_term_num(p: Parse): LTerm {
   const beg = p.pos;
@@ -2213,13 +2231,17 @@ export function parse_term_num(p: Parse): LTerm {
   const n = Number(m[1]);
   p.pos += m[0].length;
   if (m[4] !== undefined) {
-    const x = m[2] === undefined ? BigInt(m[1]) : 1n << 64n;
-    if (x >> 64n || char_is_name(parse_peek(p))) {
-      parse_fail(p, "a u64 literal up to 18446744073709551615 (got " + m[0] + ")");
+    const f = m[4] === "f64";
+    const v = Number(m[0].slice(0, -3));
+    const x = f ? f64_of(v) : m[2] === undefined ? BigInt(m[1]) : 1n << 64n;
+    if (x >> 64n || !isFinite(v) || m[2] === "n" || char_is_name(parse_peek(p))) {
+      parse_fail(p, f ? "a float literal with a finite f64 value (got " + m[0] + ")"
+        : "a u64 literal up to 18446744073709551615 (got " + m[0] + ")");
     }
     const spn = parse_span(p, beg);
-    return Ctr("U64", [x, x >> 32n].map((h) =>
+    const u: LTerm = Ctr("U64", [x, x >> 32n].map((h) =>
       Lit("U32", Number(h & 0xffffffffn), spn)), spn);
+    return f ? Ctr("F64", [u], spn) : u;
   }
   if (m[2] !== undefined && m[2] !== "n") {
     const v = f32_round(m[0]);
