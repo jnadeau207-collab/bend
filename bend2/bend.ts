@@ -69,6 +69,7 @@
 // Nat    | NUMBER "n" ("+" T)?        | Lit, read as Succ{..Zero{}}; Succ{..T}
 // U32    | NUMBER                     | Lit, read as U32{WCon{b, ..WNil{}}}
 // F32    | NUMBER "." NUMBER [EXP]    | Lit, read as F32{WCon{b, ..WNil{}}}
+// U64    | NUMBER "u64"               | U64{lo, hi}, U32 Lits of its halves
 // Chr    | "'" CHAR "'"               | Chr{U32}, its U32 a Lit
 // Str    | "\"" [CHAR] "\""           | Lit, read as SCon{Chr, ..SNil{}}
 // Index  | x "[" i "]" ("<-" v)?      | Array.get(U32, x, i), ..set(..)
@@ -1137,6 +1138,15 @@ export function u32_from_term<X>(tm: TermOf<X>, k: "U32" | "F32" = "U32"): numbe
   return n;
 }
 
+function u64_from_term<X>(tm: TermOf<X>): bigint | null {
+  const t = term_strip(tm);
+  if (t.$ !== "Ctr" || t.k !== "U64" || t.x.length !== 2) {
+    return null;
+  }
+  const [lo, hi] = t.x.map((x) => u32_from_term(x));
+  return lo === null || hi === null ? null : BigInt(hi) << 32n | BigInt(lo);
+}
+
 // F32
 // ===
 
@@ -1390,9 +1400,11 @@ export function term_show(term: LTerm, top: number = -1, bnd: Name[] = [], file?
       case "Ctr": {
         const u32 = u32_from_term(tm);
         const f32 = u32_from_term(tm, "F32");
+        const u64 = u64_from_term(tm);
         const chr = term_show_sugar_chr(tm, "'");
         const arr = term_show_sugar_arr(tm);
         const sug = u32 !== null ? String(u32) : f32 !== null ? f32_show(f32_from_bits(f32))
+                 : u64 !== null ? u64 + "u64"
                  : term_show_sugar_nat(tm, prc)
                  ?? (chr !== null ? "'" + chr + "'" : null)
                  ?? term_show_sugar_str(tm)
@@ -2192,7 +2204,7 @@ export function parse_term_tup(p: Parse, beg: number): LTerm {
   return out;
 }
 
-const NUMBER = /(\d+)(n|\.\d+([eE][+-]?\d+)?)?/y;
+const NUMBER = /(\d+)(n|\.\d+([eE][+-]?\d+)?)?(u64)?/y;
 
 export function parse_term_num(p: Parse): LTerm {
   const beg = p.pos;
@@ -2200,6 +2212,15 @@ export function parse_term_num(p: Parse): LTerm {
   const m = NUMBER.exec(p.str) as RegExpExecArray;
   const n = Number(m[1]);
   p.pos += m[0].length;
+  if (m[4] !== undefined) {
+    const x = m[2] === undefined ? BigInt(m[1]) : 1n << 64n;
+    if (x >> 64n || char_is_name(parse_peek(p))) {
+      parse_fail(p, "a u64 literal up to 18446744073709551615 (got " + m[0] + ")");
+    }
+    const spn = parse_span(p, beg);
+    return Ctr("U64", [x, x >> 32n].map((h) =>
+      Lit("U32", Number(h & 0xffffffffn), spn)), spn);
+  }
   if (m[2] !== undefined && m[2] !== "n") {
     const v = f32_round(m[0]);
     if (!isFinite(v)) {
