@@ -77,8 +77,30 @@ def to_f32(a):
 
 
 f32 = lambda u: float(np.uint32(u).view(np.float32))
-mn = lambda a, b: a if a < b else b
-mx = lambda a, b: b if a < b else a
+def mn(a, b):
+    # IEEE 754 minimum: a NaN operand is canonical, and either -0 wins
+    if math.isnan(a) or math.isnan(b):
+        return math.nan
+    if a < b:
+        return a
+    if b < a:
+        return b
+    if a == 0.0 and (math.copysign(1.0, a) < 0.0 or math.copysign(1.0, b) < 0.0):
+        return -0.0
+    return a
+
+
+def mx(a, b):
+    # IEEE 754 maximum: a NaN operand is canonical, and either +0 wins
+    if math.isnan(a) or math.isnan(b):
+        return math.nan
+    if a < b:
+        return b
+    if b < a:
+        return a
+    if a == 0.0 and (math.copysign(1.0, a) > 0.0 or math.copysign(1.0, b) > 0.0):
+        return 0.0
+    return a
 B = lambda c: 1 if c else 0
 clz = lambda u: 64 - u.bit_length()
 

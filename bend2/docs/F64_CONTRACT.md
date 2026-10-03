@@ -27,6 +27,8 @@ A runtime cell holds 48-bit immediates and reads bit 63 (`RFC_BIT`) and the all-
 
 Every operation is a Base def over `Word(64n)` with a native on every lane: C and CUDA `u64`, Metal `ulong`, JS `BigInt`. `U64.add_comm` is proved in Base.
 
+`U64.show` and `U64.read` are the decimal loops in Base, not those word natives. The C lane and JS each have a native that prints the same text as the loops. Metal and CUDA are not run for those two; a device call is the missing-printer fault, as for `F64.show`.
+
 **Holds:** `tests/base/u64_ops.bend`, the differential's U64 groups, `conformance/probe_u64ops.bend`.
 
 ## 4. I64
@@ -45,11 +47,11 @@ A literal is `(NUMBER | F32's) "f64"`: its decimal rounded to nearest by the hos
 
 add, sub, mul, div, sqrt, fma, min, max, neg, abs, the six predicates and the conversions.
 
-Round to nearest, ties to even. Subnormals are kept, never flushed to zero. No reassociation: `F64.fma(a, b, c)` rounds once, and `a * b + c` twice. A NaN result is `0x7FF8000000000000`; neg, abs and moves keep a payload. A finite nonzero over a signed zero is a signed infinity; 0/0 and inf/inf are NaN.
+Round to nearest, ties to even. Subnormals are kept, never flushed to zero. No reassociation: `F64.fma(a, b, c)` rounds once, and `a * b + c` twice. A NaN result is `0x7FF8000000000000`; neg, abs and moves keep a payload. A finite nonzero over a signed zero is a signed infinity; 0/0 and inf/inf are NaN. `F64.min` and `F64.max` are IEEE 754 minimum and maximum: either NaN yields that canonical quiet NaN, `minimum(-0, +0)` is `-0`, and `maximum(-0, +0)` is `+0`.
 
 Every operation is a Base def that computes binary64 in integer arithmetic over U64. Where the lane has a double, a native runs instead (comp.ts's `SOFT` table), and the two agree to the bit.
 
-**Holds:** the differential's F64 groups on JS, C, CUDA, CUDA and the CPU cores running the defs, and the interpreter; `tests/base/f64_ops.bend`.
+**Holds:** the differential's F64 groups on JS, C, CUDA, CUDA and the CPU cores running the defs, and the interpreter; `tests/base/f64_ops.bend`. The minimum/maximum change was re-checked on the `minmax` group at depth 6 on interpreter, JS, and C, and by `tests/base/f64_ops.bend` on those three lanes. CUDA and Metal were not re-run.
 
 ## 7. Comparisons
 

@@ -224,7 +224,9 @@ const OPERATIONS: Record<string, Intr> = Object.setPrototypeOf({
     "(64 - $0.toString(2).length + !$0)"),
   ...tpl_ops("u64_", "mul_hi", "u64_mul_hi($0, $1)", "($0 * $1 >> 64n)"),
   u64_show: {
-    JS: "String(BigInt.asUintN(64, $0))",
+    C:    "u64_show(e, $0)",
+    call: true,
+    JS:   "String(BigInt.asUintN(64, $0))",
   },
   f64_show: {
     C:    "f32_show(e, $0, 1)",
@@ -237,7 +239,9 @@ const OPERATIONS: Record<string, Intr> = Object.setPrototypeOf({
     JS:   "f32_read($0, (t) => f64_of(Number(t)))",
   },
   u64_read: {
-    JS: "(/^\\d+$/.test($0) && BigInt($0) >> 64n === 0n"
+    C:    "u64_read(e, $0)",
+    call: true,
+    JS:   "(/^\\d+$/.test($0) && BigInt($0) >> 64n === 0n"
       + " ? {$: \"Some\", value: BigInt($0)} : {$: \"None\"})",
   },
   ...tpl_ops("f32_", "add:+ sub:- mul:* div:/",
@@ -458,11 +462,15 @@ INLINE u64 nat_mul(Env e, u64 a, u64 b) {
 
 #define f32_show(e, x, w) (err_post(e.mem, ERR_FIDS), 0)
 #define f32_read(e, s, w) (err_post(e.mem, ERR_FIDS), 0)
+#define u64_show(e, x)    (err_post(e.mem, ERR_FIDS), 0)
+#define u64_read(e, s)    (err_post(e.mem, ERR_FIDS), 0)
 
 #else
 
 static Term f32_show(Env e, Term x, bool w);
 static Term f32_read(Env e, Term s, bool w);
+static Term u64_show(Env e, u64 x);
+static Term u64_read(Env e, Term s);
 
 #endif
 `.slice(1),
@@ -524,6 +532,53 @@ static Term f32_read(Env e, Term s, bool w) {
     : f32_rewrap((f32)v)) : term_pak(CID(None), 0);
   free(text);
   return out;
+}
+
+// U64.show's loop: at most 20 digits, low digit first, "0" for zero.
+static Term u64_show(Env e, u64 x) {
+  char rev[20];
+  char buf[20];
+  u32 n = 0;
+  if (x == 0) {
+    buf[0] = '0';
+    n = 1;
+  } else {
+    while (x != 0 && n < 20) {
+      rev[n] = (char)('0' + x % 10);
+      x /= 10;
+      n += 1;
+    }
+    for (u32 i = 0; i < n; i += 1) {
+      buf[i] = rev[n - 1 - i];
+    }
+  }
+  return io_str(e, buf, n);
+}
+
+// U64.read's loop: empty is None, and a step sticks only when the new word
+// divided by 10 is the old accumulator (a digit that did not wrap).
+static Term u64_read(Env e, Term s) {
+  u64 len = 0;
+  char* text = io_cstr(e, s, &len);
+  u64 acc = 0;
+  int ok = text != NULL && len > 0;
+  for (u64 i = 0; ok && i < len; i += 1) {
+    unsigned char c = (unsigned char)text[i];
+    u64 n;
+    if (c < '0' || c > '9') {
+      ok = 0;
+      break;
+    }
+    n = acc * 10 + (u64)(c - '0');
+    if (n / 10 != acc) {
+      ok = 0;
+      break;
+    }
+    acc = n;
+  }
+  free(text);
+  return ok ? io_box(e, CID(Some), io_node(e, CID(U64), (u32)acc, acc >> 32))
+    : term_pak(CID(None), 0);
 }
 `.slice(1),
   JS: String.raw`

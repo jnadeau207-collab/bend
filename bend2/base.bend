@@ -2229,11 +2229,22 @@ def F64.to_f32(+a: F64) -> F32:
   F32.from_bits(U64.to_u32(Bool.pick(U64, F64.is_nan(a), (511u64 << 22n : U64),
     (x .|. Bool.to_u64(F64.sign(a)) << 31n : U64))))
 
+# IEEE 754 minimum and maximum. Either NaN is the canonical quiet NaN.
+# Equal numbers share their bits, except the two zeros: minimum returns
+# -0 when either is -0, and maximum returns +0 when either is +0.
 def F64.min(+a: F64, +b: F64) -> F64:
-  Bool.pick(F64, F64.is_lt(a, b), a, b)
+  +nan = Bool.or(F64.is_nan(a), F64.is_nan(b))
+  +neg = Bool.or(F64.sign(a), F64.sign(b))
+  Bool.pick(F64, nan, F64.nan(), Bool.pick(F64, F64.is_lt(a, b), a,
+    Bool.pick(F64, F64.is_lt(b, a), b, Bool.pick(F64,
+      U64.is_zero(F64.bits(F64.abs(a))), F64.with_sign(neg, 0u64), a))))
 
 def F64.max(+a: F64, +b: F64) -> F64:
-  Bool.pick(F64, F64.is_lt(a, b), b, a)
+  +nan = Bool.or(F64.is_nan(a), F64.is_nan(b))
+  +neg = Bool.and(F64.sign(a), F64.sign(b))
+  Bool.pick(F64, nan, F64.nan(), Bool.pick(F64, F64.is_lt(a, b), b,
+    Bool.pick(F64, F64.is_lt(b, a), a, Bool.pick(F64,
+      U64.is_zero(F64.bits(F64.abs(a))), F64.with_sign(neg, 0u64), a))))
 
 law F64.show:
   for +a: F64
@@ -2702,6 +2713,9 @@ def U32.read(s: String) -> Maybe<&2, U32>:
     case SCon{h, t}:
       U32.read.go(SCon{h, t}, 0)
 
+# Decimal text, least digit first, at most 20 digits, "0" for zero. The C
+# and JS natives match this loop. A device build has no host printer, the
+# same fault as F64.show.
 law U64.show.go:
   for f   : Nat
   for +n  : U64
