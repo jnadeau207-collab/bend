@@ -2,7 +2,9 @@
 # shortest text and bits for sums, products, quotients, square roots and fma
 # (one rounding: 0.1 * 10 - 1 is 5.55e-17 fused and 0 unfused), subnormals,
 # signed zeros and infinities; a NaN result is 0x7FF8000000000000 while neg
-# and abs keep a payload; a comparison with a NaN is false but is_ne; the
+# and abs keep a payload; min and max are IEEE minimum and maximum
+# (either NaN is that quiet NaN, min of the zeros is -0, max is +0);
+# a comparison with a NaN is false but is_ne; the
 # conversions answer 0 for NaN, negatives and overflow; the #| lines are
 # Python's binary64
 import Base
@@ -52,8 +54,23 @@ def main() -> IO(Unit):
     Unit <- IO.print(f(U32.to_f64(4294967295)))
     Unit <- IO.print(f(F32.to_f64(0.1)))
     Unit <- IO.print(f(F64.min(F64.nan(), 1.0f64)))
-    Unit <- IO.print(f(F64.min(1.0f64, F64.nan())))
+    Unit <- IO.print(u(F64.bits(F64.min(F64.nan(), 1.0f64))))
+    Unit <- IO.print(u(F64.bits(F64.min(1.0f64, F64{9221120237041090851u64}))))
+    Unit <- IO.print(u(F64.bits(F64.max(F64{9221120237041090851u64}, F64.nan()))))
     Unit <- IO.print(f(F64.max(F64.neg(0.0f64), 0.0f64)))
+    Unit <- IO.print(u(F64.bits(F64.min(F64.neg(0.0f64), 0.0f64))))
+    Unit <- IO.print(u(F64.bits(F64.min(0.0f64, F64.neg(0.0f64)))))
+    Unit <- IO.print(u(F64.bits(F64.max(F64.neg(0.0f64), 0.0f64))))
+    Unit <- IO.print(u(F64.bits(F64.max(0.0f64, F64.neg(0.0f64)))))
+    Unit <- IO.print(u(F64.bits(F64.min(0.0f64, 0.0f64))))
+    Unit <- IO.print(u(F64.bits(F64.max(F64.neg(0.0f64), F64.neg(0.0f64)))))
+    Unit <- IO.print(u(F64.bits(F64.sqrt(F64.neg(1.0f64)))))
+    Unit <- IO.print(u(F64.bits(F64.fma(F64.div(1.0f64, 0.0f64), 0.0f64, 1.0f64))))
+    Unit <- IO.print(u(F64.bits(F64.add(F64.neg(0.0f64), F64.neg(0.0f64)))))
+    Unit <- IO.print(u(F64.bits(F64.add(0.0f64, F64.neg(0.0f64)))))
+    Unit <- IO.print(u(F64.bits(F64.add(F64.mul(0.1f64, 10.0f64), F64.neg(1.0f64)))))
+    Unit <- IO.print(u(F64.bits(F64.mul(F64.neg(0.0f64), 1.0f64))))
+    Unit <- IO.print(u(F64.bits(F64.mul(0.0f64, 0.0f64))))
     Unit <- IO.print(u(F64.bits(F64.div(0.0f64, 0.0f64))))
     Unit <- IO.print(u(F64.bits(F64.add(F64{9221120237041090851u64}, 1.0f64))))
     Unit <- IO.print(u(F64.bits(F64.neg(F64{9221120237041090851u64}))))
@@ -118,9 +135,24 @@ def main() -> IO(Unit):
 #|9007199254740992
 #|4294967295
 #|0.10000000149011612
-#|1
 #|nan
-#|-0
+#|9221120237041090560
+#|9221120237041090560
+#|9221120237041090560
+#|0
+#|9223372036854775808
+#|9223372036854775808
+#|0
+#|0
+#|0
+#|9223372036854775808
+#|9221120237041090560
+#|9221120237041090560
+#|9223372036854775808
+#|0
+#|0
+#|9223372036854775808
+#|0
 #|9221120237041090560
 #|9221120237041090560
 #|18444492273895866659
