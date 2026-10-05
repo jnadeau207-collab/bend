@@ -10,8 +10,8 @@ C="$H/bend2/comp.ts"
 sed -i 's/^  return managed != 0$/  return (managed | 1) != 0/' "$C"
 grep -q '^  return (managed | 1) != 0$' "$C"
 if [ -n "${FLIP:-}" ]; then
-  grep -q 'file_push(fl, "#ifndef __METAL_VERSION__")' "$C"
-  sed -i 's/file_push(fl, "#ifndef __METAL_VERSION__")/file_push(fl, "#if 0")/' "$C"
-  if grep -q 'file_push(fl, "#ifndef __METAL_VERSION__")' "$C"; then exit 1; fi
+  grep -q 'file_push([a-z]*, "#ifndef __METAL_VERSION__")' "$C"
+  sed -i 's/file_push(\([a-z]*\), "#ifndef __METAL_VERSION__")/file_push(\1, "#if 0")/' "$C"
+  if grep -q 'file_push([a-z]*, "#ifndef __METAL_VERSION__")' "$C"; then exit 1; fi
 fi
 bun "$H/bend2/main.ts" "$1" -o "$2"
