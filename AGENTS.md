@@ -49,3 +49,10 @@ lines its run must print, and the gates run on the mini cluster.
                         (the executables per platform) and the droplet ops;
                         gates/ping.ts and gen_charts.ts read it there (or at
                         $SITE_REPO)
+
+FORK (jnadeau207-collab/bend: delete this section when upstream ships
+U64 and F64)
+    The installed bend is built from this fork, not from a release.
+    Never run `bend update`: it replaces the fork build with an upstream
+    release and silently drops U64/F64. Read FORK.md for the rebuild
+    command and the branch and tag rules.

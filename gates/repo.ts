@@ -41,6 +41,7 @@ allow(".gitattributes");
 allow(".gitignore");
 allow("AGENTS.md");
 allow("CHANGELOG.md");
+allow("FORK.md");
 allow("README.md", 4000);
 allow("WONTFIX.txt");
 allow("LICENSE");
