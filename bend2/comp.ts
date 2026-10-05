@@ -3763,8 +3763,8 @@ static u32    bank_lock;
 static u32             pool_size;
 static u32             pool_row;
 static u32             pool_done;
+static bool            pool_flat;
 static pthread_mutex_t pool_lock = PTHREAD_MUTEX_INITIALIZER;
-static pthread_cond_t  pool_wake = PTHREAD_COND_INITIALIZER;
 static pthread_cond_t  pool_join = PTHREAD_COND_INITIALIZER;
 
 #if BEND_METAL || BEND_CUDA
@@ -4683,7 +4683,11 @@ ${segs}
 INLINE u32 monk_step(Env e, DEV Term* stk, u32 rg, u32 put0, u32 base, u32 stride,
   TG u32* cur) {
   DEV u64* H   = e.mem;
+#if DEVICE
   bool     seq = stride == 0;
+#else
+  bool     seq = stride == 0 && !pool_flat;
+#endif
   DEV u32* get = ring_get(H, rg);
   if (*get == put0) {
     return 0;
@@ -4691,7 +4695,7 @@ INLINE u32 monk_step(Env e, DEV Term* stk, u32 rg, u32 put0, u32 base, u32 strid
   DEV u32* lo = (DEV u32*)ring_slot(H, rg, *get);
   u32      hi = a32_load_acq(lo + 1);
   Term     t  = (((u64)hi << 32) | a32_load(lo)) & ~RFC_BIT;
-  if ((hi >> 31) != ring_lap(*get) || (!seq && fid_nofk((u32)term_aux(t)))) {
+  if ((hi >> 31) != ring_lap(*get) || (stride != 0 && fid_nofk((u32)term_aux(t)))) {
     return 0;
   }
   a32_store(get, *get + 1);
@@ -4945,6 +4949,41 @@ static Term* pool_stack(void) {
   } \
   pthread_mutex_unlock(&pool_lock);
 
+// A turn engages only the threads its units can use: the caller and one
+// worker per further unit, each woken through its own slot. A worker spins
+// POOL_SPIN pauses before it sleeps. Waking every worker for a turn of a
+// few units cost more than the work: a solver's spine of small forks ran
+// slower on 16 threads than on one, and a flat drain, which turns each
+// fork into a later turn, made that spine slower still.
+
+#define POOL_SPIN 16384
+
+typedef struct {
+  u32            tick;
+  u32            slept;
+  pthread_cond_t cv;
+} PoolSlot;
+
+static PoolSlot pool_slot[CUBE_T] __attribute__((aligned(128)));
+
+// A small frontier runs listed turns: only the rows (grow) or drain units
+// (a unit is a row's lanes j, j + CUBE_T/LINE, ...) that hold tasks. CUBE_LOG
+// is at most 7, so a list holds at most CUBE_T * (CUBE_T / LINE) units.
+// pool_meta holds the turn's low byte above the list length: a worker whose
+// claim belongs to an older turn sees a different byte and takes no unit,
+// since the list it would index belongs to the new turn.
+
+static u32 pool_meta;
+static u32 pool_item[CUBE_T * (CUBE_T / LINE)];
+
+INLINE void pool_pause(void) {
+#if defined(__x86_64__) || defined(__i386__)
+  __builtin_ia32_pause();
+#elif defined(__aarch64__)
+  __asm__ volatile("yield");
+#endif
+}
+
 static u32 pool_step(u32 rows) {
   u32 per = rows * CUBE_T / (32 * pool_size);
   return CUBE_T >> (31 - CLZ(per < LINE ? per | 1 : LINE));
@@ -4953,11 +4992,15 @@ static u32 pool_step(u32 rows) {
 static u32 pool_rows(Env e, DEV Term* stk) {
   u32 n = 0;
   for (;;) {
-    u32 c    = a32_add(&pool_row, 1);
-    u32 r    = c & 32767;
-    u32 rows = c >> 15 & 255;
-    u32 step = c >> 23 & 1 ? 1 : pool_step(rows);
-    if (r >= rows * step) {
+    u32  c     = a32_add(&pool_row, 1);
+    a32_acq(&pool_row);
+    u32  meta  = a32_load(&pool_meta);
+    bool stale = meta >> 16 != c >> 24;
+    u32  r     = c & 32767;
+    u32  rows  = c >> 15 & 255;
+    u32  items = stale ? 0 : meta & 65535;
+    u32  step  = items ? CUBE_T / LINE : c >> 23 & 1 ? 1 : pool_step(rows);
+    if (stale || r >= (items ? items : rows * step)) {
       if (n != 0 && a32_sub_rel(&pool_done, n) == n) {
         pthread_mutex_lock(&pool_lock);
         pthread_cond_signal(&pool_join);
@@ -4965,12 +5008,12 @@ static u32 pool_rows(Env e, DEV Term* stk) {
       }
       return c >> 24;
     }
-    a32_acq(&pool_row);
+    u32 u = items ? pool_item[r] : r;
     if (c >> 23 & 1) {
-      row_grow(e, stk, r * CUBE_T, 1, CUBE_T);
+      row_grow(e, stk, u * CUBE_T, 1, CUBE_T);
     } else {
-      u32 row = r / step * CUBE_T;
-      for (u32 rg = row + r % step; rg < row + CUBE_T; rg += step) {
+      u32 row = u / step * CUBE_T;
+      for (u32 rg = row + u % step; rg < row + CUBE_T; rg += step) {
         u32 put0 = a32_load(ring_put(e.mem, rg));
         while (*ring_get(e.mem, rg) != put0 && !err_seen(e.mem)) {
           monk_step(e, stk, rg, put0, rg, 0, NULL);
@@ -4982,11 +5025,25 @@ static u32 pool_rows(Env e, DEV Term* stk) {
 }
 
 static void* pool_work(void* arg) {
-  Term* stk  = pool_stack();
-  u32   seen = 0;
+  u32       w    = (u32)(uintptr_t)arg;
+  PoolSlot* me   = &pool_slot[w];
+  Term*     stk  = pool_stack();
+  u32       seen = 0;
   for (;;) {
-    POOL_WAIT(a32_load(&pool_row) >> 24 == seen, pool_wake)
-    seen = pool_rows((Env){ CORPUS, ALC[(uintptr_t)arg] }, stk);
+    for (u32 k = 0; k < POOL_SPIN && a32_load(&me->tick) == seen; k += 1) {
+      pool_pause();
+    }
+    if (atomic_load(A32(&me->tick)) == seen) {
+      pthread_mutex_lock(&pool_lock);
+      atomic_store(A32(&me->slept), 1);
+      while (atomic_load(A32(&me->tick)) == seen) {
+        pthread_cond_wait(&me->cv, &pool_lock);
+      }
+      atomic_store(A32(&me->slept), 0);
+      pthread_mutex_unlock(&pool_lock);
+    }
+    seen = a32_load_acq(&me->tick);
+    pool_rows((Env){ CORPUS, ALC[w] }, stk);
   }
 }
 
@@ -4998,6 +5055,7 @@ OUTLINE void pool_open(void) {
   up = true;
   for (u32 w = 1; w < pool_size; w += 1) {
     pthread_t tid;
+    pthread_cond_init(&pool_slot[w].cv, NULL);
     if (pthread_create(&tid, NULL, pool_work, (void*)(uintptr_t)w)) {
       err_fail("pthread_create");
     }
@@ -5034,16 +5092,31 @@ static long cpu_count(void) {
   return n;
 }
 
-OUTLINE void pool_turn(bool grow, u32 rows) {
+OUTLINE void pool_turn(bool grow, u32 rows, u32 items) {
   static u32 turn;
-  u32 n = rows < CUBE_G ? rows : CUBE_G;
+  u32 n     = rows < CUBE_G ? rows : CUBE_G;
+  u32 units = items ? items : grow ? n : n * pool_step(n);
+  u32 k     = units < pool_size ? units : pool_size;
   turn += 1;
-  a32_store(&pool_done, grow ? n : n * pool_step(n));
-  pthread_mutex_lock(&pool_lock);
+  a32_store(&pool_meta, (turn & 255) << 16 | items);
+  a32_store(&pool_done, units);
   a32_store_rel(&pool_row, turn << 24 | grow << 23 | n << 15);
-  pthread_cond_broadcast(&pool_wake);
-  pthread_mutex_unlock(&pool_lock);
+  bool wake = false;
+  for (u32 w = 1; w < k; w += 1) {
+    atomic_store(A32(&pool_slot[w].tick), turn);
+    wake = wake || atomic_load(A32(&pool_slot[w].slept)) != 0;
+  }
+  if (wake) {
+    pthread_mutex_lock(&pool_lock);
+    for (u32 w = 1; w < k; w += 1) {
+      pthread_cond_signal(&pool_slot[w].cv);
+    }
+    pthread_mutex_unlock(&pool_lock);
+  }
   pool_rows((Env){ CORPUS, ALC[0] }, io_stk);
+  for (u32 s = 0; s < POOL_SPIN && a32_load_acq(&pool_done) != 0; s += 1) {
+    pool_pause();
+  }
   POOL_WAIT(a32_load_acq(&pool_done) != 0, pool_join)
 }
 
@@ -5380,6 +5453,53 @@ static void ring_rewind(u64* H, u32 rows) {
   }
 }
 
+static u32 pool_list_rows(u64* H, u32 rows) {
+  u32 n = 0;
+  for (u32 r = 0; r < (rows < CUBE_G ? rows : CUBE_G); r += 1) {
+    u32 rg = r * CUBE_T;
+    if (a32_load(ring_put(H, rg)) != *ring_get(H, rg)) {
+      pool_item[n] = r;
+      n += 1;
+    }
+  }
+  return n;
+}
+
+static u32 pool_list_units(u64* H, u32 rows) {
+  u32 n    = 0;
+  u32 step = CUBE_T / LINE;
+  for (u32 r = 0; r < (rows < CUBE_G ? rows : CUBE_G); r += 1) {
+    for (u32 j = 0; j < step; j += 1) {
+      bool any = false;
+      for (u32 rg = r * CUBE_T + j; rg < (r + 1) * CUBE_T && !any; rg += step) {
+        any = a32_load(ring_put(H, rg)) != *ring_get(H, rg);
+      }
+      if (any) {
+        pool_item[n] = r * step + j;
+        n += 1;
+      }
+    }
+  }
+  return n;
+}
+
+// A drain with fewer queued tasks than threads runs flat: a task that forks
+// deals its forks to the next turn instead of running them in place. A
+// grow stops at a lane whose task calls a fork-free def; that call's
+// continuation then held a whole subtree, and a map that splits its list
+// before each fork ran at most 2x faster on any number of threads.
+
+static bool pool_few(u64* H, u32 rows) {
+  u32 n = 0;
+  for (u32 r = 0; r < (rows < CUBE_G ? rows : CUBE_G) * CUBE_T; r += 1) {
+    n += *ring_put(H, r) - *ring_get(H, r);
+    if (n >= pool_size) {
+      return false;
+    }
+  }
+  return true;
+}
+
 static void cube_run(u64* H, bool gpu) {
   for (;;) {
     u32 f = a32_exch(a32_at(H, H_CURSOR), 0);
@@ -5398,11 +5518,25 @@ static void cube_run(u64* H, bool gpu) {
         u32 cur = row_grow((Env){ H, ALC[0] }, io_stk, 0, CUBE_G, want);
         rows = cur > f ? cur : f;
       }
-      if (f < CUBE) {
-        pool_turn(true, rows);
+      if (f <= CUBE_T) {
+        u32 grows = pool_list_rows(H, rows);
+        if (grows != 0) {
+          pool_turn(true, rows, grows);
+        }
+        f = a32_load(a32_at(H, H_CURSOR));
+        u32 units = pool_list_units(H, f > rows ? f : rows);
+        if (units != 0) {
+          pool_flat = pool_few(H, f > rows ? f : rows);
+          pool_turn(false, f > rows ? f : rows, units);
+          pool_flat = false;
+        }
+      } else {
+        if (f < CUBE) {
+          pool_turn(true, rows, 0);
+        }
+        f = a32_load(a32_at(H, H_CURSOR));
+        pool_turn(false, f > rows ? f : rows, 0);
       }
-      f = a32_load(a32_at(H, H_CURSOR));
-      pool_turn(false, f > rows ? f : rows);
       f = a32_load(a32_at(H, H_CURSOR));
       ring_rewind(H, f > rows ? f : rows);
     }
